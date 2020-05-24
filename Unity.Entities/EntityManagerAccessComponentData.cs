@@ -306,10 +306,16 @@ namespace Unity.Entities
         public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
         {
             var typeIndex = TypeManager.GetTypeIndex<T>();
-            return m_EntityDataAccess.GetBufferReadOnly<T>(entity
+            var ecs = GetCheckedReadEntityDataAccess();
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                , SafetyHandles->GetSafetyHandle(typeIndex, true),
-                SafetyHandles->GetBufferSafetyHandle(typeIndex)
+            var safetyHandles = &ecs->DependencyManager->Safety;
+#endif
+
+            return ecs->GetBuffer<T>(entity
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                , safetyHandles->GetSafetyHandle(typeIndex, true),
+                safetyHandles->GetBufferSafetyHandle(typeIndex)
 #endif
             );
         }

@@ -890,11 +890,12 @@ namespace Unity.Entities
                 $"GetBuffer<{typeof(T)}> may not be IComponentData or ISharedComponentData; currently {TypeManager.GetTypeInfo<T>().Category}");
 #endif
 
-        if (m_IsMainThread)
-            DependencyManager->CompleteWriteDependency(typeIndex);
+        if (IsMainThread)
+            DependencyManager->CompleteReadAndWriteDependency(typeIndex);
 
         BufferHeader* header =
-            (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex);
+                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRW(entity, typeIndex,
+                EntityComponentStore->GlobalSystemVersion);
 
         int internalCapacity = TypeManager.GetTypeInfo(typeIndex).BufferCapacity;
 

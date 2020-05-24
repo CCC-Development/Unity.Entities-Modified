@@ -70,6 +70,19 @@ namespace Unity.Entities
             return m_EntityDataAccess;
         }
 
+        // ADDED BY FBESSETTE 2020-05-24
+        internal EntityDataAccess* GetCheckedReadEntityDataAccess()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
+            if (m_JobMode != m_EntityDataAccess->m_JobMode)
+            {
+                throw new InvalidOperationException($"EntityManager cannot be used from this context job mode {m_JobMode} != current mode {m_EntityDataAccess->m_JobMode}");
+            }
+#endif
+            return m_EntityDataAccess;
+        }
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         internal bool IsInsideForEach => GetCheckedEntityDataAccess()->m_InsideForEach != 0;
 
