@@ -97,7 +97,8 @@ namespace Unity.Entities.Editor
 
         private int lastVersion = -1;
 
-        public bool NeedsReload => ShowingSomething && getWorldSelection().EntityManager.Version != lastVersion;
+        public bool NeedsReload => ShowingSomething && 
+            (getWorldSelection().EntityManager.Version != lastVersion);
         
         public void ReloadIfNecessary()
         {

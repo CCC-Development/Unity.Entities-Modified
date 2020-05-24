@@ -237,6 +237,12 @@ namespace Unity.Entities
             return ChangeVersionUtility.DidChange(GetComponentVersion(chunkSharedComponentData), version);
         }
 
+        // ADDED BY FBESSETTE 2020-02-19
+        public bool DidChange(ComponentType componentType, uint version)
+        {
+            return ChangeVersionUtility.DidChange(GetComponentVersion(componentType), version);
+        }
+
         /// <summary>
         ///
         /// </summary>
@@ -275,6 +281,14 @@ namespace Unity.Entities
             where T : struct, ISharedComponentData
         {
             var typeIndexInArchetype = ChunkDataUtility.GetIndexInTypeArray(m_Chunk->Archetype, chunkSharedComponentData.m_TypeIndex);
+            if (typeIndexInArchetype == -1) return 0;
+            return m_Chunk->GetChangeVersion(typeIndexInArchetype);
+        }
+
+        // ADDED BY FBESSETTE 2020-02-19
+        public uint GetComponentVersion(ComponentType componentType)
+        {
+            var typeIndexInArchetype = ChunkDataUtility.GetIndexInTypeArray(m_Chunk->Archetype, componentType.TypeIndex);
             if (typeIndexInArchetype == -1) return 0;
             return m_Chunk->GetChangeVersion(typeIndexInArchetype);
         }

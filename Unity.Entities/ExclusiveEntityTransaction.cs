@@ -41,7 +41,15 @@ namespace Unity.Entities
 #endif
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-        public void CheckAccess()
+        public void CheckReadAccess()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
+#endif
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void CheckWriteAccess()
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckWriteAndThrow(m_Safety);
@@ -50,7 +58,7 @@ namespace Unity.Entities
 
         internal EntityArchetype CreateArchetype(ComponentType* types, int count)
         {
-            CheckAccess();
+            CheckWriteAccess();
             return m_EntityDataAccess.CreateArchetype(types, count);
         }
 
@@ -64,13 +72,13 @@ namespace Unity.Entities
 
         public Entity CreateEntity(EntityArchetype archetype)
         {
-            CheckAccess();
+            CheckWriteAccess();
             return m_EntityDataAccess.CreateEntity(archetype);
         }
 
         public void CreateEntity(EntityArchetype archetype, NativeArray<Entity> entities)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.CreateEntity(archetype, entities);
         }
 
@@ -93,7 +101,7 @@ namespace Unity.Entities
 
         void InstantiateInternal(Entity srcEntity, Entity* outputEntities, int count)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.InstantiateInternal(srcEntity, outputEntities, count);
         }
 
@@ -114,69 +122,69 @@ namespace Unity.Entities
 
         private void DestroyEntityInternal(Entity* entities, int count)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.DestroyEntityInternal(entities, count);
         }
 
         public void AddComponent(Entity entity, ComponentType componentType)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.AddComponent(entity, componentType);
         }
 
         public DynamicBuffer<T> AddBuffer<T>(Entity entity) where T : struct, IBufferElementData
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.AddComponent(entity, ComponentType.ReadWrite<T>());
             return GetBuffer<T>(entity);
         }
 
         public void RemoveComponent(Entity entity, ComponentType type)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.RemoveComponent(entity, type);
         }
 
         public bool Exists(Entity entity)
         {
-            CheckAccess();
+            CheckReadAccess();
             return m_EntityDataAccess.Exists(entity);
         }
 
         public bool HasComponent(Entity entity, ComponentType type)
         {
-            CheckAccess();
+            CheckReadAccess();
             return m_EntityDataAccess.HasComponent(entity, type);
         }
 
         public T GetComponentData<T>(Entity entity) where T : struct, IComponentData
         {
-            CheckAccess();
+            CheckReadAccess();
             return m_EntityDataAccess.GetComponentData<T>(entity);
         }
         
         public void SetComponentData<T>(Entity entity, T componentData) where T : struct, IComponentData
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.SetComponentData(entity, componentData);
         }
 
         public T GetSharedComponentData<T>(Entity entity) where T : struct, ISharedComponentData
         {
-            CheckAccess();
+            CheckReadAccess();
             return m_EntityDataAccess.GetSharedComponentData<T>(entity, ManagedComponentStore);
         }
 
         public void SetSharedComponentData<T>(Entity entity, T componentData) where T : struct, ISharedComponentData
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.SetSharedComponentData(entity, componentData, ManagedComponentStore);
         }
 
         internal void AddSharedComponent<T>(NativeArray<ArchetypeChunk> chunks, T componentData)
             where T : struct, ISharedComponentData
         {
-            CheckAccess();
+            CheckWriteAccess();
             var componentType = ComponentType.ReadWrite<T>();
             int sharedComponentIndex = ManagedComponentStore.InsertSharedComponent(componentData);
             m_EntityDataAccess.AddSharedComponentData(chunks, sharedComponentIndex, componentType);
@@ -185,7 +193,7 @@ namespace Unity.Entities
 
         public DynamicBuffer<T> GetBuffer<T>(Entity entity) where T : struct, IBufferElementData
         {
-            CheckAccess();
+            CheckWriteAccess();
             return m_EntityDataAccess.GetBuffer<T>(entity
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 ,m_Safety, m_Safety
@@ -193,9 +201,20 @@ namespace Unity.Entities
                 );
         }
 
+        // added by fbessette 2020-04-19
+        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+        {
+            CheckReadAccess();
+            return m_EntityDataAccess.GetBufferReadOnly<T>(entity
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                , m_Safety, m_Safety
+#endif
+                );
+        }
+
         internal void AllocateConsecutiveEntitiesForLoading(int count)
         {
-            CheckAccess();
+            CheckWriteAccess();
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (EntityComponentStore->CountEntities() != 0)
@@ -206,7 +225,7 @@ namespace Unity.Entities
 
         public void SwapComponents(ArchetypeChunk leftChunk, int leftIndex, ArchetypeChunk rightChunk, int rightIndex)
         {
-            CheckAccess();
+            CheckWriteAccess();
             m_EntityDataAccess.SwapComponents(leftChunk, leftIndex, rightChunk, rightIndex);
         }
     }

@@ -1162,7 +1162,7 @@ namespace Unity.Entities
         /// <param name="mgr">The exclusive entity transaction that will process the operations</param>
         public void Playback(ExclusiveEntityTransaction mgr)
         {
-            mgr.CheckAccess();
+            mgr.CheckWriteAccess();
             PlaybackInternal(mgr.EntityDataAccess);
         }
 

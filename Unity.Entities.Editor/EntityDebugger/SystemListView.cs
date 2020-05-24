@@ -489,7 +489,7 @@ namespace Unity.Entities.Editor
                 return true;
             if (a.subSystemList == null || b.subSystemList == null)
                 return false;
-            if (a.subSystemList.Length != b.subSystemList.Length)
+            if (a.subSystemList != b.subSystemList)
                 return false;
             for (var i = 0; i < a.subSystemList.Length; ++i)
             {

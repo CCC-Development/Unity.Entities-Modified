@@ -67,7 +67,7 @@ namespace Unity.Entities
 #if !UNITY_DOTSPLAYER
     public static class ScriptBehaviourUpdateOrder
     {
-        private static void InsertManagerIntoSubsystemList<T>(PlayerLoopSystem[] subsystemList, int insertIndex, T mgr)
+        public static void InsertManagerIntoSubsystemList<T>(PlayerLoopSystem[] subsystemList, int insertIndex, T mgr)
             where T : ComponentSystemBase
         {
             var del = new DummyDelegateWrapper(mgr);
@@ -136,7 +136,7 @@ namespace Unity.Entities
         }
 
         // FIXME: HACK! - mono 4.6 has problems invoking virtual methods as delegates from native, so wrap the invocation in a non-virtual class
-        internal class DummyDelegateWrapper
+        public class DummyDelegateWrapper
         {
 
             internal ComponentSystemBase System => m_System;

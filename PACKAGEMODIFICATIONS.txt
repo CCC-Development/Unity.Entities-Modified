@@ -1,0 +1,93 @@
+1. ExclusiveEntityTransaction: Changed CheckAccess() to CheckWriteAccess() and CheckReadAccess(). Methods like Exists(entity) and GetComponentData<T>(entity) now only check for read access
+2. Updated Test assemblies so that it compiles with latest Unity Test package.
+
+2020-02-19 Added new methods to get the "component version" within an ArchetypeChunk
+Iterators\ArchetypeChunkArray.cs 
+    + line 241: public bool DidChange<T>(ComponentType componentType, uint version) where T : struct, ISharedComponentData
+    + line 289: public uint GetComponentVersion(ComponentType componentType)
+
+2020-02-19 Exposed methods to make it easier to extend the ScriptBehaviourUpdateOrder functionality
+ScriptBehaviourUpdateOrder.cs
+    +/- line 70: private static void InsertManagerIntoSubsystemList -> public static void InsertManagerIntoSubsystemList
+    +/- line 139: internal class DummyDelegateWrapper -> public class DummyDelegateWrapper
+
+2020-03-19 Tweaked the 'NeedsUpdate' getter of the SystemListView in the entity debugger so it would update itself correctly
+Unity.Entities.Editor\EntityDebugger\SystemListView.cs
+    +/- line 492: if (a.subSystemList.Length != b.subSystemList.Length)  ->  if (a.subSystemList != b.subSystemList)
+
+2020-03-28 Added user hook into the entity inspector drawing to allow custom property drawing
+Unity.Entities.Editor\EntityInspector\EntityIMGUIVisitor.cs
+    + line 12:		public class InspectorUserHook
+    +        :		{
+    +        :			public static Func<IPropertyVisitorAdapter> s_AdapterBuilder;
+    +        :		}
+    ----------
+    + line 126:		if(InspectorUserHook.s_AdapterBuilder != null)
+    +         :		{	AddAdapter(InspectorUserHook.s_AdapterBuilder());
+    +         :         var adapters = InspectorUserHook.s_AdapterBuilder();
+    +         :         foreach (var adapter in adapters)
+    +         :         {
+    +         :             if(adapter != null)
+    +         :                 AddAdapter(adapter);
+    +         :         }
+    +         :     }
+    
+2020-04-19 Exposed a GetBufferReadOnly() method that returns a DynamicBuffer with a readonly handle
+Unity.Entities\EntityManagerAccessComponentData.cs
+    + line 278:        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+    +         :        {
+    +         :            var typeIndex = TypeManager.GetTypeIndex<T>();
+    +         :            return m_EntityDataAccess.GetBufferReadOnly<T>(entity
+    +         :#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :                , SafetyHandles->GetSafetyHandle(typeIndex, true),
+    +         :                SafetyHandles->GetBufferSafetyHandle(typeIndex)
+    +         :#endif
+    +         :            );
+    +         :        }
+
+2020-04-19 Exposed a GetBufferReadOnly() method that returns a DynamicBuffer with a readonly handle
+Unity.Entities\EntityDataAccess.cs
+    + line 519:    public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity
+    +         :#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :        , AtomicSafetyHandle safety, AtomicSafetyHandle arrayInvalidationSafety
+    +         :#endif
+    +         :        ) where T : struct, IBufferElementData
+    +         :    {
+    +         :        var typeIndex = TypeManager.GetTypeIndex<T>();
+    +         :
+    +         :#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :        EntityComponentStore->AssertEntityHasComponent(entity, typeIndex);
+    +         :        if (!TypeManager.IsBuffer(typeIndex))
+    +         :            throw new ArgumentException(
+    +         :                $"GetBuffer<{typeof(T)}> may not be IComponentData or ISharedComponentData; currently {TypeManager.GetTypeInfo<T>().Category}");
+    +         :#endif
+    +         :
+    +         :        if (m_IsMainThread)
+    +         :            DependencyManager->CompleteWriteDependency(typeIndex);
+    +         :
+    +         :        BufferHeader* header =
+    +         :            (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex);
+    +         :
+    +         :        int internalCapacity = TypeManager.GetTypeInfo(typeIndex).BufferCapacity;
+    +         :
+    +         :#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :        var useMemoryInit = EntityComponentStore->useMemoryInitPattern != 0;
+    +         :        byte memoryInitPattern = EntityComponentStore->memoryInitPattern;
+    +         :        return new DynamicBuffer<T>(header, safety, arrayInvalidationSafety, true, useMemoryInit, memoryInitPattern, internalCapacity);
+    +         :#else
+    +         :        return new DynamicBuffer<T>(header, internalCapacity);
+    +         :#endif
+    +         :    }
+
+2020-04-19 Exposed a GetBufferReadOnly() method that returns a DynamicBuffer with a readonly handle
+Unity.Entities\ExclusiveEntityTransaction.cs
+    + line 204:         // added by fbessette 2020-04-19
+    +         :         public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+    +         :         {
+    +         :             CheckReadAccess();
+    +         :             return m_EntityDataAccess.GetBufferReadOnly<T>(entity
+    +         : #if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :                 , m_Safety, m_Safety
+    +         : #endif
+    +         :                 );
+    +         :         }

@@ -8,6 +8,13 @@ using UnityEngine;
 
 namespace Unity.Entities.Editor
 {
+    // ADDED FBESSETTE 2020-03-28
+    public class InspectorUserHook
+    {
+        public static Func<IPropertyVisitorAdapter[]> s_AdapterBuilder;
+    }
+    // END
+
     internal class EntityIMGUIVisitor : PropertyVisitor
     {
         private class VisitorStyles
@@ -116,6 +123,18 @@ namespace Unity.Entities.Editor
 
         public EntityIMGUIVisitor(SelectEntityButtonCallback selectEntityButtonCallback, IgnoreEntityCallback shouldIgnoreEntityCallback, ResolveEntityNameCallback resolveEntityNameCallback)
         {
+            // ADDED FBESSETTE 2020-03-28
+            if(InspectorUserHook.s_AdapterBuilder != null)
+            {
+                var adapters = InspectorUserHook.s_AdapterBuilder();
+                foreach (var adapter in adapters)
+                {
+                    if(adapter != null)
+                        AddAdapter(adapter);
+                }
+            }
+            // END
+
             AddAdapter(new IMGUIPrimitivesAdapter());
             AddAdapter(new IMGUIMathematicsAdapter());
             AddAdapter(new EntityIMGUIAdapter(selectEntityButtonCallback, shouldIgnoreEntityCallback, resolveEntityNameCallback));

@@ -274,6 +274,18 @@ namespace Unity.Entities
             );
         }
 
+        // ADDED BY FBESSETTE 2020-04-09
+        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+        {
+            var typeIndex = TypeManager.GetTypeIndex<T>();
+            return m_EntityDataAccess.GetBufferReadOnly<T>(entity
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                , SafetyHandles->GetSafetyHandle(typeIndex, true),
+                SafetyHandles->GetBufferSafetyHandle(typeIndex)
+#endif
+            );
+        }
+
         /// <summary>
         /// Swaps the components of two entities.
         /// </summary>
