@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -45,9 +45,9 @@ public class SharedComponentSerializeTests
 
         public bool Equals(TestStruct other)
         {
-            return Value == other.Value && Float3.Equals(other.Float3) && Equals(MaterialArray, other.MaterialArray) 
-                   && Equals(MaterialList, other.MaterialList) && StringValue == other.StringValue 
-                   && EnumValue == other.EnumValue && Equals(Mat, other.Mat) && Equals(NullObj, other.NullObj);
+            return Value == other.Value && Float3.Equals(other.Float3) && Equals(MaterialArray, other.MaterialArray)
+                && Equals(MaterialList, other.MaterialList) && StringValue == other.StringValue
+                && EnumValue == other.EnumValue && Equals(Mat, other.Mat) && Equals(NullObj, other.NullObj);
         }
 
         public override int GetHashCode()
@@ -59,7 +59,7 @@ public class SharedComponentSerializeTests
                 hashCode = (hashCode * 397) ^ (!ReferenceEquals(MaterialArray,  null) ? MaterialArray.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (!ReferenceEquals(MaterialList, null) ? MaterialList.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (StringValue != null ? StringValue.GetHashCode() : 0);
-                hashCode = (hashCode * 397) ^ (int) EnumValue;
+                hashCode = (hashCode * 397) ^ (int)EnumValue;
                 hashCode = (hashCode * 397) ^ (!ReferenceEquals(Mat, null) ? Mat.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (!ReferenceEquals(NullObj, null) ? NullObj.GetHashCode() : 0);
                 return hashCode;
@@ -82,33 +82,6 @@ public class SharedComponentSerializeTests
         return srcData;
     }
 
-    
-    [Test]
-    unsafe public void ReadWriteObjectTableIndex()
-    {
-        var srcData = ConfigureStruct();
-
-        // Write to stream
-        var buffer = new UnsafeAppendBuffer(0, 16, Allocator.Persistent);
-        var writer = new PropertiesBinaryWriter(&buffer);
-
-        PropertyContainer.Visit(ref srcData, writer);
-
-        var objectTable = writer.GetObjectTable();    
-        
-        // Read from stream
-        var readStream = writer.Buffer.AsReader();
-        var reader = new PropertiesBinaryReader(&readStream, objectTable);
-        
-        var readData = new TestStruct();
-        PropertyContainer.Visit(ref readData, reader);
-
-        // Check same
-        TestStruct.AreEqual(srcData, readData);
-        
-        buffer.Dispose();
-    }
-    
     [Test]
     unsafe public void ReadWriteBoxed()
     {
@@ -116,38 +89,38 @@ public class SharedComponentSerializeTests
 
         // Write to stream
         var buffer = new UnsafeAppendBuffer(0, 16, Allocator.Persistent);
-        var writer = new PropertiesBinaryWriter(&buffer);
+        var writer = new ManagedObjectBinaryWriter(&buffer);
 
         var boxedSrcData = (object)srcData;
-        BoxedProperties.WriteBoxedType(boxedSrcData, writer);
+        writer.WriteObject(boxedSrcData);
 
-        var objectTable = writer.GetObjectTable();    
-        
+        var objectTable = writer.GetObjectTable();
+
         // Read from stream
-        var readStream = writer.Buffer.AsReader();
-        var reader = new PropertiesBinaryReader(&readStream, objectTable);
-        
-        var boxedRead = BoxedProperties.ReadBoxedStruct(typeof(TestStruct), reader);
+        var readStream = buffer.AsReader();
+        var reader = new ManagedObjectBinaryReader(&readStream, objectTable);
+
+        var boxedRead = reader.ReadObject(typeof(TestStruct));
 
         // Check same
         TestStruct.AreEqual(srcData, (TestStruct)boxedRead);
-        
+
         buffer.Dispose();
     }
-    
+
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
     public class ComponentWithStringArray : IComponentData
     {
         public string[] StringArray;
-        
+
         public static void AreEqual(ComponentWithStringArray expected, ComponentWithStringArray value)
         {
             Assert.AreEqual(expected.StringArray.Length, value.StringArray.Length);
-            for(int i = 0; i < expected.StringArray.Length; ++i)
+            for (int i = 0; i < expected.StringArray.Length; ++i)
                 Assert.AreEqual(expected.StringArray[i], value.StringArray[i]);
         }
     }
-    
+
     /// <summary>
     /// Regression test for an issue where arrays of strings were not constructed properly when
     /// deserializing. Arrays have a special deserialization path, and strings also have a special code
@@ -163,23 +136,24 @@ public class SharedComponentSerializeTests
 
         // Write to stream
         var buffer = new UnsafeAppendBuffer(0, 16, Allocator.Persistent);
-        var writer = new PropertiesBinaryWriter(&buffer);
+        var writer = new ManagedObjectBinaryWriter(&buffer);
 
         var boxedSrcData = (object)srcData;
-        BoxedProperties.WriteBoxedType(boxedSrcData, writer);
+        writer.WriteObject(boxedSrcData);
 
-        var objectTable = writer.GetObjectTable();    
-        
+        var objectTable = writer.GetObjectTable();
+
         // Read from stream
-        var readStream = writer.Buffer.AsReader();
-        var reader = new PropertiesBinaryReader(&readStream, objectTable);
-        
-        var boxedRead = BoxedProperties.ReadBoxedClass(typeof(ComponentWithStringArray), reader);
+        var readStream = buffer.AsReader();
+        var reader = new ManagedObjectBinaryReader(&readStream, objectTable);
+
+        var boxedRead = reader.ReadObject(typeof(ComponentWithStringArray));
 
         // Check same
         ComponentWithStringArray.AreEqual(srcData, (ComponentWithStringArray)boxedRead);
-        
+
         buffer.Dispose();
     }
+
 #endif
 }

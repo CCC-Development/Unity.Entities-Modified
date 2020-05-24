@@ -39,7 +39,7 @@ namespace Unity.Entities
         {
             if (systemType == null)
                 throw new ArgumentNullException(nameof(systemType));
-            
+
             SystemType = systemType;
         }
 
@@ -57,7 +57,7 @@ namespace Unity.Entities
         {
             if (groupType == null)
                 throw new ArgumentNullException(nameof(groupType));
-            
+
             GroupType = groupType;
         }
 
@@ -79,11 +79,9 @@ namespace Unity.Entities
         /// Update the player loop with a world's root-level systems
         /// </summary>
         /// <param name="world">World with root-level systems that need insertion into the player loop</param>
-        /// <param name="existingPlayerLoop">Optional parameter to preserve existing player loops (e.g. ScriptBehaviourUpdateOrder.CurrentPlayerLoop)</param>
+        /// <param name="existingPlayerLoop">Optional parameter to preserve existing player loops (e.g. PlayerLoop.GetCurrentPlayerLoop())</param>
         public static void UpdatePlayerLoop(World world, PlayerLoopSystem? existingPlayerLoop = null)
         {
-            // TODO: PlayerLoop.GetCurrentPlayerLoop was added in 2019.3, so when minspec is updated revisit whether
-            // we can drop the optional parameter
             var playerLoop = existingPlayerLoop ?? PlayerLoop.GetDefaultPlayerLoop();
 
             if (world != null)
@@ -123,22 +121,68 @@ namespace Unity.Entities
             }
 
             PlayerLoop.SetPlayerLoop(playerLoop);
-            currentPlayerLoop = playerLoop;
         }
 
-        public static PlayerLoopSystem CurrentPlayerLoop => currentPlayerLoop;
-        private static PlayerLoopSystem currentPlayerLoop;
+        private static bool IsWorldInSubSystemList(World world, PlayerLoopSystem[] subSystemList)
+        {
+            foreach (var subSystem in subSystemList)
+            {
+                var type = subSystem.type;
+                if (type == typeof(SimulationSystemGroup) || type == typeof(PresentationSystemGroup) || type == typeof(InitializationSystemGroup))
+                {
+                    var wrapper = subSystem.updateDelegate.Target as DummyDelegateWrapper;
 
+                    if (wrapper.System.World == world)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public static bool IsWorldInPlayerLoop(World world)
+        {
+            if (world == null)
+                return false;
+
+            var playerLoop = PlayerLoop.GetCurrentPlayerLoop();
+
+            for (var i = 0; i < playerLoop.subSystemList.Length; ++i)
+            {
+                if (playerLoop.subSystemList[i].type == typeof(Update))
+                {
+                    if (!IsWorldInSubSystemList(world, playerLoop.subSystemList[i].subSystemList))
+                        return false;
+                }
+                else if (playerLoop.subSystemList[i].type == typeof(PreLateUpdate))
+                {
+                    if (!IsWorldInSubSystemList(world, playerLoop.subSystemList[i].subSystemList))
+                        return false;
+                }
+                else if (playerLoop.subSystemList[i].type == typeof(Initialization))
+                {
+                    if (!IsWorldInSubSystemList(world, playerLoop.subSystemList[i].subSystemList))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        [Obsolete("Please use PlayerLoop.GetCurrentPlayerLoop(). (RemovedAfter 2020-05-12)")]
+        public static PlayerLoopSystem CurrentPlayerLoop => PlayerLoop.GetCurrentPlayerLoop();
+
+        [Obsolete("Please use PlayerLoop.SetPlayerLoop(). (RemovedAfter 2020-05-12)")]
         public static void SetPlayerLoop(PlayerLoopSystem playerLoop)
         {
             PlayerLoop.SetPlayerLoop(playerLoop);
-            currentPlayerLoop = playerLoop;
         }
 
         // FIXME: HACK! - mono 4.6 has problems invoking virtual methods as delegates from native, so wrap the invocation in a non-virtual class
         public class DummyDelegateWrapper
         {
-
             internal ComponentSystemBase System => m_System;
             private readonly ComponentSystemBase m_System;
 

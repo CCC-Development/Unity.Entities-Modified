@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using NUnit.Framework;
 using Unity.Collections;
 
 
 namespace Unity.Entities.Tests
 {
-    class IJobChunkTests :ECSTestsFixture
+    class IJobChunkTests : ECSTestsFixture
     {
         struct ProcessChunks : IJobChunk
         {
@@ -188,6 +188,38 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
+        public void IJobChunkProcessChunkIndexWithFilterRun()
+        {
+            var archetype = m_Manager.CreateArchetype(typeof(EcsTestData), typeof(EcsTestData2), typeof(SharedData1));
+            var group = m_Manager.CreateEntityQuery(typeof(EcsTestData), typeof(EcsTestData2), typeof(SharedData1));
+
+            var entity1 = m_Manager.CreateEntity(archetype);
+            var entity2 = m_Manager.CreateEntity(archetype);
+
+            m_Manager.SetSharedComponentData<SharedData1>(entity1, new SharedData1 { value = 10 });
+            m_Manager.SetComponentData<EcsTestData>(entity1, new EcsTestData { value = 10 });
+
+            m_Manager.SetSharedComponentData<SharedData1>(entity2, new SharedData1 { value = 20 });
+            m_Manager.SetComponentData<EcsTestData>(entity2, new EcsTestData { value = 20 });
+
+            group.SetSharedComponentFilter(new SharedData1 { value = 10 });
+
+            var job = new ProcessChunkIndex
+            {
+                ecsTestType = m_Manager.GetArchetypeChunkComponentType<EcsTestData>(false)
+            };
+            job.Run(group);
+
+            group.SetSharedComponentFilter(new SharedData1 { value = 20 });
+            job.Run(group);
+
+            Assert.AreEqual(0,  m_Manager.GetComponentData<EcsTestData>(entity1).value);
+            Assert.AreEqual(0,  m_Manager.GetComponentData<EcsTestData>(entity2).value);
+
+            group.Dispose();
+        }
+
+        [Test]
         public void IJobChunkProcessChunkIndex()
         {
             var archetype = m_Manager.CreateArchetype(typeof(EcsTestData), typeof(EcsTestData2), typeof(SharedData1));
@@ -209,11 +241,12 @@ namespace Unity.Entities.Tests
             // ScheduleSingle forces all chunks to run on a single thread, so the for loop in IJobChunk.ExecuteInternal() has >1 iteration.
             job.ScheduleSingle(group).Complete();
 
-            int[] values = {
+            int[] values =
+            {
                 m_Manager.GetComponentData<EcsTestData>(entity1).value,
                 m_Manager.GetComponentData<EcsTestData>(entity2).value,
             };
-            CollectionAssert.AreEquivalent(values, new int[] {0,1});
+            CollectionAssert.AreEquivalent(values, new int[] {0, 1});
 
             group.Dispose();
         }
@@ -300,6 +333,8 @@ namespace Unity.Entities.Tests
             }
         }
 
+#if !UNITY_DOTSPLAYER
+#pragma warning disable 618
         struct ForEachComponentData : IJobForEachWithEntity<EcsTestData>
         {
             public void Execute(Entity entity, int index, ref EcsTestData c0)
@@ -307,6 +342,7 @@ namespace Unity.Entities.Tests
                 c0 = new EcsTestData { value = index };
             }
         }
+#pragma warning restore 618
 
         [Test]
         public void FilteredIJobChunkProcessesSameChunksAsFilteredJobForEach()
@@ -352,6 +388,8 @@ namespace Unity.Entities.Tests
             group.Dispose();
         }
 
+#endif // !UNITY_DOTSPLAYER
+
         struct InitializedAsSingleAndParallelJob : IJobChunk
         {
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int entityOffset) {}
@@ -359,9 +397,9 @@ namespace Unity.Entities.Tests
         [Test]
         public void IJobChunkInitializedAsSingleAndParallel_CreatesDifferentScheduleData()
         {
-            var jobReflectionDataParallel = JobChunkExtensions.JobChunk_Process<InitializedAsSingleAndParallelJob>.InitializeParallel();
-            var jobReflectionDataSingle = JobChunkExtensions.JobChunk_Process<InitializedAsSingleAndParallelJob>.InitializeSingle();
-            
+            var jobReflectionDataParallel = JobChunkExtensions.JobChunkProducer<InitializedAsSingleAndParallelJob>.InitializeParallel();
+            var jobReflectionDataSingle = JobChunkExtensions.JobChunkProducer<InitializedAsSingleAndParallelJob>.InitializeSingle();
+
             Assert.AreNotEqual(jobReflectionDataParallel, jobReflectionDataSingle);
         }
     }

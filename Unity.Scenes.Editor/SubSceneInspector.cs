@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Unity.Entities;
@@ -32,8 +32,8 @@ namespace Unity.Scenes.Editor
 
         void OnUndoRedoPerformed()
         {
-            // The referenced Scene Asset can have changed when undo/redo happens so we ensure to 
-            // reload the Hierarchy which depends on the current SubScene state. 
+            // The referenced Scene Asset can have changed when undo/redo happens so we ensure to
+            // reload the Hierarchy which depends on the current SubScene state.
             SceneHierarchyHooks.ReloadAllSceneHierarchies();
         }
 
@@ -109,7 +109,7 @@ namespace Unity.Scenes.Editor
 
             if (!subScene.IsInMainStage())
             {
-                // In Prefab Mode and when selecting a Prefab Asset in the Project Browser we only show the inspector of data of the 
+                // In Prefab Mode and when selecting a Prefab Asset in the Project Browser we only show the inspector of data of the
                 // SubScene, and not the load/unload/edit/close buttons.
                 base.OnInspectorGUI();
 
@@ -149,20 +149,20 @@ namespace Unity.Scenes.Editor
                     SubSceneInspectorUtility.CloseAndAskSaveIfUserWantsTo(subscenes);
                 }
             }
-    
+
             GUI.enabled = SubSceneInspectorUtility.IsDirty(subscenes);
             if (GUILayout.Button("Save"))
             {
                 SubSceneInspectorUtility.SaveScene(subscenes);
             }
             GUI.enabled = true;
-    
+
             GUILayout.EndHorizontal();
-            
+
             var scenes = SubSceneInspectorUtility.GetLoadableScenes(subscenes);
 
             GUILayout.Space(10);
-            
+
             if (World.DefaultGameObjectInjectionWorld != null)
             {
                 var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
@@ -194,15 +194,15 @@ namespace Unity.Scenes.Editor
             {
                 World.DisposeAllWorlds();
                 DefaultWorldInitialization.Initialize("Default World", !Application.isPlaying);
-    
+
                 var scenes = FindObjectsOfType<SubScene>();
                 foreach (var scene in scenes)
                 {
-                    var oldEnabled = scene.enabled; 
+                    var oldEnabled = scene.enabled;
                     scene.enabled = false;
                     scene.enabled = oldEnabled;
                 }
-                
+
                 EditorUpdateUtility.EditModeQueuePlayerLoopUpdate();
             }
     #endif
@@ -239,11 +239,21 @@ namespace Unity.Scenes.Editor
                 EditorGUILayout.HelpBox($"SubScenes can not have child game objects. Close the scene and delete the child game objects.", MessageType.Warning, true);
             }
 
+            GUILayout.Space(10);
             if (CheckConversionLog(subScene))
             {
-                GUILayout.Space(10);
                 GUILayout.Label("Importing...");
                 Repaint();
+            }
+            else
+            {
+                if (!SubSceneInspectorUtility.IsEditingAll(subscenes))
+                {
+                    if (GUILayout.Button("Reimport"))
+                    {
+                        SubSceneInspectorUtility.ForceReimport(subscenes);
+                    }
+                }
             }
             if (m_ConversionLog.Length != 0)
             {
@@ -263,22 +273,22 @@ namespace Unity.Scenes.Editor
 
         Bounds OnGetFrameBounds()
         {
-            AABB aabb = SubSceneInspectorUtility.GetActiveWorldMinMax(World.DefaultGameObjectInjectionWorld, targets); 
+            AABB aabb = SubSceneInspectorUtility.GetActiveWorldMinMax(World.DefaultGameObjectInjectionWorld, targets);
             return new Bounds(aabb.Center, aabb.Size);
         }
-        
+
         // Visualize SubScene using bounding volume when it is selected.
         [DrawGizmo(GizmoType.Selected)]
         static void DrawSubsceneBounds(SubScene scene, GizmoType gizmoType)
         {
             SubSceneInspectorUtility.DrawSubsceneBounds(scene);
         }
-        
+
         bool CheckConversionLog(SubScene subScene)
         {
             var pendingWork = false;
 
-            foreach (var world in World.AllWorlds)
+            foreach (var world in World.All)
             {
                 var sceneSystem = world.GetExistingSystem<SceneSystem>();
                 if (sceneSystem is null)
@@ -289,7 +299,7 @@ namespace Unity.Scenes.Editor
                 else if (loaded)
                     continue;
 
-                var hash = EntityScenesPaths.GetSubSceneArtifactHash(subScene.SceneGUID, sceneSystem.BuildConfigurationGUID, UnityEditor.Experimental.AssetDatabaseExperimental.ImportSyncMode.Queue);
+                var hash = EntityScenesPaths.GetSubSceneArtifactHash(subScene.SceneGUID, sceneSystem.BuildConfigurationGUID, ImportMode.Asynchronous);
                 if (!hash.IsValid)
                 {
                     pendingWork = true;
@@ -298,7 +308,7 @@ namespace Unity.Scenes.Editor
 
                 m_ConversionLogLoaded[sceneSystem.BuildConfigurationGUID] = true;
 
-                UnityEditor.Experimental.AssetDatabaseExperimental.GetArtifactPaths(hash, out var paths);
+                AssetDatabaseCompatibility.GetArtifactPaths(hash, out var paths);
                 var logPath = EntityScenesPaths.GetLoadPathFromArtifactPaths(paths, EntityScenesPaths.PathType.EntitiesConversionLog);
                 if (logPath == null)
                     continue;

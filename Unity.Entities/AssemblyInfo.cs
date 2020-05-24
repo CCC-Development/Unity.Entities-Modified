@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Unity.Entities.Editor")]
 [assembly: InternalsVisibleTo("Unity.Entities.Editor.Tests")]
@@ -9,8 +9,8 @@
 [assembly: InternalsVisibleTo("Unity.Scenes.Editor")]
 [assembly: InternalsVisibleTo("Unity.Scenes.Hybrid")]
 [assembly: InternalsVisibleTo("Unity.Scenes.Hybrid.Tests")]
-[assembly: InternalsVisibleTo("Unity.Entities.StaticTypeRegistry")]
 [assembly: InternalsVisibleTo("Unity.DOTS.Editor")]
+[assembly: InternalsVisibleTo("Unity.DOTS.Editor.Tests")]
 [assembly: InternalsVisibleTo("Unity.Authoring")]
 [assembly: InternalsVisibleTo("Unity.Tiny.IO")]
 [assembly: InternalsVisibleTo("Unity.Tiny.Scenes")]
@@ -21,3 +21,4 @@
 [assembly: InternalsVisibleTo("Unity.Entities.Determinism")]
 [assembly: InternalsVisibleTo("Unity.DataFlowGraph")]
 [assembly: InternalsVisibleTo("Unity.DataFlowGraph.Tests")]
+[assembly: InternalsVisibleTo("Unity.Transforms.Hybrid")]

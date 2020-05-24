@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 #if !NET_DOTS
 using System.Linq;
@@ -8,7 +8,6 @@ using Unity.Entities;
 
 namespace Unity.Entities
 {
-
     public class ComponentSystemSorter
     {
         public class CircularSystemDependencyException : Exception
@@ -21,8 +20,7 @@ namespace Unity.Entities
                 Console.WriteLine($"The following systems form a circular dependency cycle (check their [UpdateBefore]/[UpdateAfter] attributes):");
                 foreach (var s in Chain)
                 {
-                    int index = TypeManager.GetSystemTypeIndex(s);
-                    string name = TypeManager.SystemNames[index];
+                    string name = TypeManager.GetSystemName(s);
                     Console.WriteLine(name);
                 }
 #endif
@@ -164,7 +162,7 @@ namespace Unity.Entities
             public TypeHeapElement(int index, Type t)
             {
                 unsortedIndex = index;
-                typeName = TypeManager.SystemName(t);
+                typeName = TypeManager.GetSystemName(t);
             }
 
             public int CompareTo(TypeHeapElement other)
@@ -206,6 +204,7 @@ namespace Unity.Entities
                 return lookupDictionary[t];
             return -1;
         }
+
 #else
         private static int LookupSysAndDep<T>(Type t, SysAndDep<T>[] array)
         {
@@ -218,6 +217,7 @@ namespace Unity.Entities
             }
             return -1;
         }
+
 #endif
 
         private static void WarningForBeforeCheck(Type sysType, Type depType)
@@ -228,9 +228,9 @@ namespace Unity.Entities
                 + $"Set the target parameter of [UpdateBefore] to a different system class in the same {nameof(ComponentSystemGroup)} as {sysType}.");
 #else
             Debug.LogWarning($"WARNING: invalid [UpdateBefore] attribute:");
-            Debug.LogWarning(TypeManager.SystemName(sysType));
+            Debug.LogWarning(TypeManager.GetSystemName(sysType));
             Debug.LogWarning("  is a redundant update before a system that is restricted to be last: ");
-            Debug.LogWarning(TypeManager.SystemName(depType));
+            Debug.LogWarning(TypeManager.GetSystemName(depType));
             Debug.LogWarning("Set the target parameter of [UpdateBefore] to a system class in the same ComponentSystemGroup.");
 #endif
         }
@@ -243,9 +243,9 @@ namespace Unity.Entities
                 + $"Set the target parameter of [UpdateAfter] to a different system class in the same {nameof(ComponentSystemGroup)} as {sysType}.");
 #else
             Debug.LogWarning($"WARNING: invalid [UpdateAfter] attribute:");
-            Debug.LogWarning(TypeManager.SystemName(sysType));
+            Debug.LogWarning(TypeManager.GetSystemName(sysType));
             Debug.LogWarning("  is a redundant update before a system that is restricted to be first: ");
-            Debug.LogWarning(TypeManager.SystemName(depType));
+            Debug.LogWarning(TypeManager.GetSystemName(depType));
             Debug.LogWarning("Set the target parameter of [UpdateBefore] to a system class in the same ComponentSystemGroup.");
 #endif
         }
@@ -297,7 +297,7 @@ namespace Unity.Entities
                             + $"Set the target parameter of [UpdateBefore] to a system class in the same {nameof(ComponentSystemGroup)} as {systemType}.");
 #else
                         Debug.LogWarning($"WARNING: invalid [UpdateBefore] attribute:");
-                        Debug.LogWarning(TypeManager.SystemName(dep.SystemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(dep.SystemType));
                         Debug.LogWarning(" is not derived from ComponentSystemBase. Set the target parameter of [UpdateBefore] to a system class in the same ComponentSystemGroup.");
 #endif
                         continue;
@@ -311,7 +311,7 @@ namespace Unity.Entities
                             + $"Set the target parameter of [UpdateBefore] to a different system class in the same {nameof(ComponentSystemGroup)} as {systemType}.");
 #else
                         Debug.LogWarning($"WARNING: invalid [UpdateBefore] attribute:");
-                        Debug.LogWarning(TypeManager.SystemName(systemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(systemType));
                         Debug.LogWarning("  depends on itself. Set the target parameter of [UpdateBefore] to a system class in the same ComponentSystemGroup.");
 #endif
                         continue;
@@ -385,9 +385,9 @@ namespace Unity.Entities
                             + $"You can also change the relative order of groups when appropriate, by using [UpdateBefore] and [UpdateAfter] attributes at the group level.");
 #else
                         Debug.LogWarning("WARNING: invalid [UpdateBefore] dependency:");
-                        Debug.LogWarning(TypeManager.SystemName(systemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(systemType));
                         Debug.LogWarning("  depends on a non-sibling system: ");
-                        Debug.LogWarning(TypeManager.SystemName(dep.SystemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(dep.SystemType));
 #endif
                         continue;
                     }
@@ -407,7 +407,7 @@ namespace Unity.Entities
                             + $"Set the target parameter of [UpdateAfter] to a system class in the same {nameof(ComponentSystemGroup)} as {systemType}.");
 #else
                         Debug.LogWarning($"WARNING: invalid [UpdateAfter] attribute:");
-                        Debug.LogWarning(TypeManager.SystemName(dep.SystemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(dep.SystemType));
                         Debug.LogWarning(" is not derived from ComponentSystemBase. Set the target parameter of [UpdateAfter] to a system class in the same ComponentSystemGroup.");
 #endif
                         continue;
@@ -421,7 +421,7 @@ namespace Unity.Entities
                             + $"Set the target parameter of [UpdateAfter] to a different system class in the same {nameof(ComponentSystemGroup)} as {systemType}.");
 #else
                         Debug.LogWarning($"WARNING: invalid [UpdateAfter] attribute:");
-                        Debug.LogWarning(TypeManager.SystemName(systemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(systemType));
                         Debug.LogWarning("  depends on itself. Set the target parameter of [UpdateAfter] to a system class in the same ComponentSystemGroup.");
 #endif
                         continue;
@@ -495,9 +495,9 @@ namespace Unity.Entities
                             + $"You can also change the relative order of groups when appropriate, by using [UpdateBefore] and [UpdateAfter] attributes at the group level.");
 #else
                         Debug.LogWarning("WARNING: invalid [UpdateAfter] dependency:");
-                        Debug.LogWarning(TypeManager.SystemName(systemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(systemType));
                         Debug.LogWarning("  depends on a non-sibling system: ");
-                        Debug.LogWarning(TypeManager.SystemName(dep.SystemType));
+                        Debug.LogWarning(TypeManager.GetSystemName(dep.SystemType));
 #endif
                         continue;
                     }

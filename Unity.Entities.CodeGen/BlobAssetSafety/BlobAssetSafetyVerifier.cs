@@ -15,18 +15,18 @@ namespace Unity.Entities.CodeGen
     internal class BlobAssetSafetyVerifier : EntitiesILPostProcessor
     {
         private static bool _enable = true;
-        
-        protected override bool PostProcessImpl()
+
+        protected override bool PostProcessImpl(TypeDefinition[] componentSystemTypes)
         {
             if (_enable)
                 AssertNoBlobAssetLeavesBlobAssetStorage();
             return false;
         }
-        
+
         void AssertNoBlobAssetLeavesBlobAssetStorage()
         {
             HashSet<TypeReference> _nonRestrictedTypes = new HashSet<TypeReference>();
-            
+
             foreach (var type in AssemblyDefinition.MainModule.GetAllTypes())
             {
                 if (!type.HasMethods)
@@ -35,7 +35,7 @@ namespace Unity.Entities.CodeGen
                 {
                     if (!method.HasBody)
                         continue;
-                    
+
                     var verifyDiagnosticMessages = VerifyMethod(method, _nonRestrictedTypes);
                     _diagnosticMessages.AddRange(verifyDiagnosticMessages);
                 }
@@ -45,7 +45,7 @@ namespace Unity.Entities.CodeGen
         public static List<DiagnosticMessage> VerifyMethod(MethodDefinition method, HashSet<TypeReference> _nonRestrictedTypes)
         {
             var diagnosticMessages = new List<DiagnosticMessage>();
-            
+
             bool IsTypeRestrictedToBlobAssetStorage(TypeReference tr)
             {
                 if (tr.IsPrimitive)
@@ -78,7 +78,7 @@ namespace Unity.Entities.CodeGen
                             $"Unable to resolve type {tr.FullName} for verification.",
                             method, method.Body.Instructions.FirstOrDefault()));
                     _nonRestrictedTypes.Add(tr);
-                    
+
                     return false;
                 }
 
@@ -104,7 +104,7 @@ namespace Unity.Entities.CodeGen
             {
                 if (instruction.OpCode == OpCodes.Ldfld)
                 {
-                    var fieldReference = (FieldReference) instruction.Operand;
+                    var fieldReference = (FieldReference)instruction.Operand;
                     var tr = fieldReference.FieldType;
                     if (IsTypeRestrictedToBlobAssetStorage(tr))
                     {
@@ -115,14 +115,14 @@ namespace Unity.Entities.CodeGen
 
                         diagnosticMessages.Add(
                             UserError.MakeError("MayOnlyLiveInBlobStorageViolation",
-                                $"You may only access .{fieldReference.Name} by ref, as it may only live in blob storage. try `{error}`",
+                                $"You may only access .{fieldReference.Name} by (non-readonly) ref, as it may only live in blob storage. try `{error}`",
                                 method, instruction));
                     }
                 }
 
                 if (instruction.OpCode == OpCodes.Ldobj)
                 {
-                    var tr = (TypeReference) instruction.Operand;
+                    var tr = (TypeReference)instruction.Operand;
                     if (IsTypeRestrictedToBlobAssetStorage(tr))
                     {
                         var pushingInstruction = CecilHelpers.FindInstructionThatPushedArg(method, 0, instruction);
@@ -136,7 +136,7 @@ namespace Unity.Entities.CodeGen
 
                         diagnosticMessages.Add(
                             UserError.MakeError("MayOnlyLiveInBlobStorageViolation",
-                                $"{tr.Name} may only live in blob storage. Access it by ref instead: `{error}`", method,
+                                $"{tr.Name} may only live in blob storage. Access it by (non-readonly) ref instead: `{error}`", method,
                                 instruction));
                     }
                 }
@@ -172,9 +172,14 @@ namespace Unity.Entities.CodeGen
         {
             if (!td.HasCustomAttributes)
                 return false;
-            foreach(var ca in td.CustomAttributes)
+            foreach (var ca in td.CustomAttributes)
                 if (ca.AttributeType.Name == nameof(MayOnlyLiveInBlobStorageAttribute))
                     return true;
+            return false;
+        }
+
+        protected override bool PostProcessUnmanagedImpl(TypeDefinition[] unmanagedComponentSystemTypes)
+        {
             return false;
         }
     }

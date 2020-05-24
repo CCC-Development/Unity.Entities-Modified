@@ -1,4 +1,4 @@
-﻿using Unity.Properties;
+using Unity.Properties;
 using UnityEditor;
 using UnityEngine;
 
@@ -24,23 +24,20 @@ namespace Unity.Entities.Editor
         }
 
         Styles styles;
-        
+
         void OnEnable()
         {
-            visitor = new EntityIMGUIVisitor((entity) =>
-                {
-                    var targetProxy = (EntitySelectionProxy) target;
-                    if (!targetProxy.Exists)
-                        return;
-                    targetProxy.OnEntityControlSelectButton(targetProxy.World, entity);
-                },
-                () => { return callCount++ == 0; },
+            visitor = new EntityIMGUIVisitor(entity =>
+            {
+                var targetProxy = (EntitySelectionProxy)target;
+                if (!targetProxy.Exists)
+                    return;
+                targetProxy.OnEntityControlSelectButton(targetProxy.World, entity);
+            },
                 entity => currentEntityManager.GetName(entity));
 
             inclusionList = new SystemInclusionList();
         }
-
-        private int callCount = 0;
 
         private uint lastVersion;
         EntityManager currentEntityManager;
@@ -59,15 +56,15 @@ namespace Unity.Entities.Editor
             if (styles == null)
                 styles = new Styles();
         }
-        
+
         protected override void OnHeaderGUI()
         {
             InitStyles();
             GUILayout.BeginVertical(styles.TitleStyle);
-            var targetProxy = (EntitySelectionProxy) target;
+            var targetProxy = (EntitySelectionProxy)target;
             if (!targetProxy.Exists)
                 return;
-            
+
             GUI.enabled = true;
             var entity = targetProxy.Entity;
             var entityName = targetProxy.EntityManager.GetName(entity);
@@ -78,7 +75,7 @@ namespace Unity.Entities.Editor
                 EditorWindow.GetWindow<EntityDebugger>().Repaint();
             }
             GUI.enabled = false;
-            
+
             GUILayout.Space(2f);
             GUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(true))
@@ -95,14 +92,13 @@ namespace Unity.Entities.Editor
 
         public override void OnInspectorGUI()
         {
-            var targetProxy = (EntitySelectionProxy) target;
+            var targetProxy = (EntitySelectionProxy)target;
             if (!targetProxy.Exists)
                 return;
 
             var container = targetProxy.Container;
 
             currentEntityManager = targetProxy.EntityManager;
-            callCount = 0;
             PropertyContainer.Visit(ref container, visitor);
 
             GUI.enabled = true;

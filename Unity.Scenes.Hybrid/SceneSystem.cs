@@ -18,13 +18,7 @@ namespace Unity.Scenes
     [UpdateInGroup(typeof(SceneSystemGroup))]
     public class SceneSystem : ComponentSystem
     {
-        public const string k_BootstrapFileName = "livelink-bootstrap.txt";
         public const string k_SceneInfoFileName = "catalog.bin";
-
-        static internal string GetBootStrapPath()
-        {
-            return Path.Combine(Application.streamingAssetsPath, k_BootstrapFileName);
-        }
 
         static internal string GetSceneInfoPath()
         {
@@ -66,17 +60,6 @@ namespace Unity.Scenes
             sceneLoadRequestArchetype = EntityManager.CreateArchetype(typeof(GameObjectSceneLoadRequest));
             sceneLoadRequestQuery = GetEntityQuery(new EntityQueryDesc { All = new[] { ComponentType.ReadWrite<GameObjectSceneLoadRequest>() } });
 
-            var isLiveLinkActive = false;
-            var bootstrapFilePath = GetBootStrapPath();
-            if (File.Exists(bootstrapFilePath))
-            {
-                using (var rdr = File.OpenText(bootstrapFilePath))
-                {
-                    BuildConfigurationGUID = new Hash128(rdr.ReadLine());
-                    isLiveLinkActive = true;
-                }
-            }
-
             var sceneInfoPath = GetSceneInfoPath();
             if (File.Exists(sceneInfoPath))
             {
@@ -87,7 +70,7 @@ namespace Unity.Scenes
                 }
 
                 //if running in LiveLink mode, the initial scenes list is sent from the editor.  otherwise use the flags in the scene data.
-                if (!isLiveLinkActive)
+                if (!LiveLinkUtility.LiveLinkEnabled)
                 {
                     for (int i = 1; i < catalogData.Value.resources.Length; i++)
                     {
@@ -121,22 +104,34 @@ namespace Unity.Scenes
                 var scene = EntityManager.GetComponentData<GameObjectSceneLoadRequest>(entity).loadedScene;
                 return scene.IsValid() && scene.isLoaded;
             }
-            else
+
+            if (!EntityManager.HasComponent<SceneReference>(entity))
+                return false;
+
+            if (!EntityManager.HasComponent<ResolvedSectionEntity>(entity))
+                return false;
+
+            var resolvedSectionEntities = EntityManager.GetBuffer<ResolvedSectionEntity>(entity);
+
+            if (resolvedSectionEntities.Length == 0)
+                return false;
+
+            foreach (var s in resolvedSectionEntities)
             {
-                return EntityManager.HasComponent<SceneReference>(entity) && !EntityManager.HasComponent<RequestSceneLoaded>(entity);
+                if (!EntityManager.HasComponent<SceneSectionStreamingSystem.StreamingState>(s.SectionEntity))
+                    return false;
+
+                var streamingState =
+                    EntityManager.GetComponentData<SceneSectionStreamingSystem.StreamingState>(s.SectionEntity);
+
+                if (streamingState.Status != SceneSectionStreamingSystem.StreamingStatus.Loaded)
+                    return false;
             }
 
+            return true;
         }
 
         public Hash128 BuildConfigurationGUID { get; set; }
-
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        [Obsolete("BuildSettingsGUID has been renamed to BuildConfigurationGUID. (RemovedAfter 2020-04-15) (UnityUpgradable) -> BuildConfigurationGUID")]
-        public Hash128 BuildSettingsGUID
-        {
-            get => BuildConfigurationGUID;
-            set => BuildConfigurationGUID = value;
-        }
 
         /// <summary>
         /// Load a scene by its asset GUID.
@@ -169,7 +164,7 @@ namespace Unity.Scenes
             });
 
             var requestSceneLoaded = new RequestSceneLoaded { LoadFlags = parameters.Flags};
-            
+
             if (sceneEntity != Entity.Null)
             {
                 EntityManager.AddComponentData(sceneEntity, requestSceneLoaded);
@@ -177,7 +172,7 @@ namespace Unity.Scenes
                 {
                     if (EntityManager.HasComponent<ResolvedSectionEntity>(sceneEntity))
                     {
-                        foreach(var s in EntityManager.GetBuffer<ResolvedSectionEntity>(sceneEntity))
+                        foreach (var s in EntityManager.GetBuffer<ResolvedSectionEntity>(sceneEntity))
                             EntityManager.AddComponentData(s.SectionEntity, requestSceneLoaded);
                     }
                 }
@@ -307,7 +302,7 @@ namespace Unity.Scenes
         {
             var streamingSystem = World.GetExistingSystem<SceneSectionStreamingSystem>();
 
-            // Cleanup all Scenes that were destroyed explicitly 
+            // Cleanup all Scenes that were destroyed explicitly
             Entities.WithNone<SceneReference>().ForEach((Entity sceneEntity, DynamicBuffer<ResolvedSectionEntity> sections) =>
             {
                 foreach (var section in sections.ToNativeArray(Allocator.Temp))
@@ -362,7 +357,7 @@ namespace Unity.Scenes
         {
             LiveLinkMsg.LogInfo($"Unloading all GameObject Scenes.");
             Entities.With(sceneLoadRequestQuery).ForEach((Entity entity, ref GameObjectSceneLoadRequest req) =>
-            {                    
+            {
                 SceneManager.UnloadSceneAsync(req.loadedScene);
                 EntityManager.DestroyEntity(req.dependency);
             });
