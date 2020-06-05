@@ -16,8 +16,8 @@ namespace Unity.Entities
         private bool m_systemSortDirty = false;
         private bool m_UnmanagedSystemSortDirty = false;
 
-        internal List<ComponentSystemBase> m_systemsToUpdate = new List<ComponentSystemBase>();
-        internal List<ComponentSystemBase> m_systemsToRemove = new List<ComponentSystemBase>();
+        protected List<ComponentSystemBase> m_systemsToUpdate = new List<ComponentSystemBase>();
+        protected List<ComponentSystemBase> m_systemsToRemove = new List<ComponentSystemBase>();
 
         internal UnsafeList<SystemRefUntyped> m_UnmanagedSystemsToUpdate;
         internal UnsafeList<SystemRefUntyped> m_UnmanagedSystemsToRemove;

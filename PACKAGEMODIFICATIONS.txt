@@ -1,5 +1,4 @@
 1. ExclusiveEntityTransaction: Changed CheckAccess() to CheckWriteAccess() and CheckReadAccess(). Methods like Exists(entity) and GetComponentData<T>(entity) now only check for read access
-2. Updated Test assemblies so that it compiles with latest Unity Test package.
 
 2020-02-19 Added new methods to get the "component version" within an ArchetypeChunk
 Iterators\ArchetypeChunkArray.cs 
@@ -91,3 +90,7 @@ Unity.Entities\ExclusiveEntityTransaction.cs
     +         : #endif
     +         :                 );
     +         :         }
+
+
+2020-05-27 made m_systemsToUpdate protected instead of internal so we can override the sorting correctly
+Unity.Entities\ComponentSystemGroup.cs
