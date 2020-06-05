@@ -894,8 +894,7 @@ namespace Unity.Entities
             DependencyManager->CompleteReadAndWriteDependency(typeIndex);
 
         BufferHeader* header =
-                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRW(entity, typeIndex,
-                EntityComponentStore->GlobalSystemVersion);
+                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex);
 
         int internalCapacity = TypeManager.GetTypeInfo(typeIndex).BufferCapacity;
 

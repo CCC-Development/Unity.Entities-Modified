@@ -312,7 +312,7 @@ namespace Unity.Entities
             var safetyHandles = &ecs->DependencyManager->Safety;
 #endif
 
-            return ecs->GetBuffer<T>(entity
+            return ecs->GetBufferReadOnly<T>(entity
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 , safetyHandles->GetSafetyHandle(typeIndex, true),
                 safetyHandles->GetBufferSafetyHandle(typeIndex)
