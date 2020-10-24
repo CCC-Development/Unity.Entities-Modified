@@ -79,7 +79,7 @@ namespace Unity.Entities
             return -1;
         }
 
-        public static void GetIndexInTypeArray(Archetype* archetype, int typeIndex, ref int typeLookupCache)
+        public static void GetIndexInTypeArray(Archetype* archetype, int typeIndex, ref short typeLookupCache)
         {
             var types = archetype->Types;
             var typeCount = archetype->TypesCount;
@@ -92,22 +92,11 @@ namespace Unity.Entities
                 if (typeIndex != types[i].TypeIndex)
                     continue;
 
-                typeLookupCache = i;
+                typeLookupCache = (short)i;
                 return;
             }
 
             typeLookupCache = -1;
-        }
-
-        public static int GetSizeInChunk(Chunk* chunk, int typeIndex, ref int typeLookupCache)
-        {
-            var archetype = chunk->Archetype;
-            GetIndexInTypeArray(archetype, typeIndex, ref typeLookupCache);
-            var indexInTypeArray = typeLookupCache;
-
-            var sizeOf = archetype->SizeOfs[indexInTypeArray];
-
-            return sizeOf;
         }
 
         public static void SetSharedComponentDataIndex(Entity entity, Archetype* archetype, in SharedComponentValues sharedComponentValues, int typeIndex)
@@ -121,33 +110,32 @@ namespace Unity.Entities
             var indexInTypeArray = GetIndexInTypeArray(chunk->Archetype, typeIndex);
             chunk->SetChangeVersion(indexInTypeArray, globalSystemVersion);
         }
-
-        public static byte* GetComponentDataWithTypeRO(Chunk* chunk, int index, int typeIndex, ref int typeLookupCache)
+        public static byte* GetComponentDataWithTypeRO(Chunk* chunk, Archetype* archetype, int index, int typeIndex, ref LookupCache lookupCache)
         {
-            var archetype = chunk->Archetype;
-            GetIndexInTypeArray(archetype, typeIndex, ref typeLookupCache);
-            var indexInTypeArray = typeLookupCache;
+            if (lookupCache.Archetype != archetype)
+            {
+                lookupCache.Archetype = archetype;
+                GetIndexInTypeArray(archetype, typeIndex, ref lookupCache.IndexInArcheType);
+                lookupCache.ComponentOffset = archetype->Offsets[lookupCache.IndexInArcheType];
+                lookupCache.ComponentSizeOf = archetype->SizeOfs[lookupCache.IndexInArcheType];
+            }
 
-            var offset = archetype->Offsets[indexInTypeArray];
-            var sizeOf = archetype->SizeOfs[indexInTypeArray];
-
-            return chunk->Buffer + (offset + sizeOf * index);
+            return chunk->Buffer + (lookupCache.ComponentOffset + lookupCache.ComponentSizeOf * index);
         }
 
-        public static byte* GetComponentDataWithTypeRW(Chunk* chunk, int index, int typeIndex, uint globalSystemVersion,
-            ref int typeLookupCache)
+        public static byte* GetComponentDataWithTypeRW(Chunk* chunk, Archetype* archetype, int index, int typeIndex, uint globalSystemVersion, ref LookupCache lookupCache)
         {
-            var archetype = chunk->Archetype;
-            GetIndexInTypeArray(archetype, typeIndex, ref typeLookupCache);
-            var indexInTypeArray = typeLookupCache;
-
-            var offset = archetype->Offsets[indexInTypeArray];
-            var sizeOf = archetype->SizeOfs[indexInTypeArray];
+            if (lookupCache.Archetype != archetype)
+            {
+                lookupCache.Archetype = archetype;
+                GetIndexInTypeArray(archetype, typeIndex, ref lookupCache.IndexInArcheType);
+                lookupCache.ComponentOffset = archetype->Offsets[lookupCache.IndexInArcheType];
+                lookupCache.ComponentSizeOf = archetype->SizeOfs[lookupCache.IndexInArcheType];
+            }
 
             // Write Component to Chunk. ChangeVersion:Yes OrderVersion:No
-            chunk->SetChangeVersion(indexInTypeArray, globalSystemVersion);
-
-            return chunk->Buffer + (offset + sizeOf * index);
+            chunk->SetChangeVersion(lookupCache.IndexInArcheType, globalSystemVersion);
+            return chunk->Buffer + (lookupCache.ComponentOffset + lookupCache.ComponentSizeOf * index);
         }
 
         public static byte* GetComponentDataWithTypeRO(Chunk* chunk, int index, int typeIndex)
@@ -181,18 +169,17 @@ namespace Unity.Entities
             return chunk->Buffer + (offset + sizeOf * index);
         }
 
-        public static byte* GetComponentDataRW(Chunk* chunk, int index, int indexInTypeArray)
+        public static byte* GetComponentDataRW(Chunk* chunk, int index, int indexInTypeArray, uint globalSystemVersion)
         {
             var offset = chunk->Archetype->Offsets[indexInTypeArray];
             var sizeOf = chunk->Archetype->SizeOfs[indexInTypeArray];
-            var entityComponentStore = chunk->Archetype->EntityComponentStore;
-            var globalSystemVersion = entityComponentStore->GlobalSystemVersion;
 
             // Write Component to Chunk. ChangeVersion:Yes OrderVersion:No
             chunk->SetChangeVersion(indexInTypeArray, globalSystemVersion);
 
             return chunk->Buffer + (offset + sizeOf * index);
         }
+
 
         public static void Copy(Chunk* srcChunk, int srcIndex, Chunk* dstChunk, int dstIndex, int count)
         {
@@ -515,7 +502,7 @@ namespace Unity.Entities
             if (chunk->Count < chunk->Capacity)
                 chunk->Archetype->EmptySlotTrackingRemoveChunk(chunk);
 
-            chunk->Archetype->RemoveFromChunkList(chunk);
+            chunk->Archetype->RemoveFromChunkList(chunk, ref entityComponentStore->m_ChunkListChangesTracker);
             chunk->Archetype = null;
 
             entityComponentStore->FreeChunk(chunk);
@@ -704,7 +691,7 @@ namespace Unity.Entities
             int chunkIndexInSrcArchetype = srcChunk->ListIndex;
 
             //Change version is overriden below
-            dstArchetype->AddToChunkList(srcChunk, sharedComponentValues, 0);
+            dstArchetype->AddToChunkList(srcChunk, sharedComponentValues, 0, ref entityComponentStore->m_ChunkListChangesTracker);
             int chunkIndexInDstArchetype = srcChunk->ListIndex;
 
             // For unchanged components: Copy versions from src to dst archetype
@@ -715,7 +702,7 @@ namespace Unity.Entities
             CloneChangeVersions(srcArchetype, chunkIndexInSrcArchetype, dstArchetype, chunkIndexInDstArchetype);
 
             srcChunk->ListIndex = chunkIndexInSrcArchetype;
-            srcArchetype->RemoveFromChunkList(srcChunk);
+            srcArchetype->RemoveFromChunkList(srcChunk, ref entityComponentStore->m_ChunkListChangesTracker);
             srcChunk->ListIndex = chunkIndexInDstArchetype;
 
             if (hasEmptySlots)
@@ -753,13 +740,13 @@ namespace Unity.Entities
 
             if (chunk->Count < chunk->Capacity)
                 srcArchetype->EmptySlotTrackingRemoveChunk(chunk);
-            srcArchetype->RemoveFromChunkList(chunk);
+            srcArchetype->RemoveFromChunkList(chunk, ref entityComponentStore->m_ChunkListChangesTracker);
             srcArchetype->EntityCount -= chunk->Count;
 
             chunk->Archetype = dstArchetype;
 
             dstArchetype->EntityCount += chunk->Count;
-            dstArchetype->AddToChunkList(chunk, sharedComponentValues, globalSystemVersion);
+            dstArchetype->AddToChunkList(chunk, sharedComponentValues, globalSystemVersion, ref entityComponentStore->m_ChunkListChangesTracker);
             if (chunk->Count < chunk->Capacity)
                 dstArchetype->EmptySlotTrackingAddChunk(chunk);
 
@@ -1049,16 +1036,9 @@ namespace Unity.Entities
             }
         }
 
-        /// <summary>
-        /// @TODO NET_DOTS fixed byte Buffer[4] fails to compile when used as a ptr.
-        /// </summary>
         public static byte* GetChunkBuffer(Chunk* chunk)
         {
-#if !NET_DOTS
             return chunk->Buffer;
-#else
-            return (byte*)chunk + Chunk.kBufferOffset;
-#endif
         }
 
         public static void ClearMissingReferences(Chunk* chunk)
@@ -1150,7 +1130,7 @@ namespace Unity.Entities
             var archetype = chunk->Archetype;
             var entityComponentStore = archetype->EntityComponentStore;
             var globalSystemVersion = entityComponentStore->GlobalSystemVersion;
-            archetype->AddToChunkList(chunk, sharedComponentIndices, globalSystemVersion);
+            archetype->AddToChunkList(chunk, sharedComponentIndices, globalSystemVersion, ref entityComponentStore->m_ChunkListChangesTracker);
             archetype->EntityCount += chunk->Count;
 
             for (var i = 0; i < archetype->NumSharedComponents; ++i)
@@ -1184,7 +1164,7 @@ namespace Unity.Entities
                 }
             }
 
-            archetype->AddToChunkList(chunk, sharedComponentValues, globalSystemVersion);
+            archetype->AddToChunkList(chunk, sharedComponentValues, globalSystemVersion, ref entityComponentStore->m_ChunkListChangesTracker);
 
             Assert.IsTrue(archetype->Chunks.Count != 0);
 

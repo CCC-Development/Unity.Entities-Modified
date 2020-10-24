@@ -89,11 +89,12 @@ namespace Unity.Entities
     /// [JobHandle.CompleteDependencies]: https://docs.unity3d.com/ScriptReference/Unity.Jobs.JobHandle.CombineDependencies.html
     /// [C# Job]: https://docs.unity3d.com/2019.2/Documentation/Manual/JobSystem.html
     /// [ECB]: xref:Unity.Entities.EntityCommandBuffer
-    /// [ComponentSystemBase.GetEntityQuery]: xref:Unity.entities.ComponentSystemBase.GetEntityQuery*
+    /// [ComponentSystemBase.GetEntityQuery]: xref:Unity.Entities.ComponentSystemBase.GetEntityQuery*
     /// [ComponentSystemBase.RequireForUpdate]: xref:Unity.Entities.ComponentSystemBase.RequireForUpdate*
     /// [Entities.ForEach]: xref:ecs-entities-foreach
     /// [Job.WithCode]: xref:ecs-entities-foreach
     /// </remarks>
+    [BurstCompile]
     public unsafe abstract class SystemBase : ComponentSystemBase
     {
         /// <summary>
@@ -138,7 +139,7 @@ namespace Unity.Entities
         /// You must manage the dependencies for IJobChunk explicitly.
         ///
         /// [JobHandle]: https://docs.unity3d.com/ScriptReference/Unity.Jobs.JobHandle.html
-        /// [JobHandle.CompleteDependencies]: https://docs.unity3d.com/ScriptReference/Unity.Jobs.JobHandle.CombineDependencies.html
+        /// [JobHandle.CombineDependencies]: https://docs.unity3d.com/ScriptReference/Unity.Jobs.JobHandle.CombineDependencies.html
         /// [Entities.ForEach]: xref:ecs-entities-foreach
         /// [Job.WithCode]: xref:ecs-entities-foreach
         /// </remarks>
@@ -211,7 +212,7 @@ namespace Unity.Entities
         /// * **`int entityInQueryIndex`** — the index of the entity in the list of all entities selected by the query.
         ///   Use the entity index value when you have a [native array] that you need to fill with a unique value for
         ///   each entity. You can use the entityInQueryIndex as the index in that array. The entityInQueryIndex should
-        ///   also be used as the jobIndex for adding commands to a concurrent <see cref="EntityCommandBuffer"/>.
+        ///   also be used as the `sortKey` for adding commands to a concurrent <see cref="EntityCommandBuffer"/>.
         ///
         /// * **`int nativeThreadIndex`** — a unique index for the thread executing the current iteration of the
         ///   lambda function. When you execute the lambda function using Run(), nativeThreadIndex is always zero.
@@ -389,19 +390,15 @@ namespace Unity.Entities
 
                     state->BeforeOnUpdate();
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                     var oldExecutingSystem = ms_ExecutingSystem;
                     ms_ExecutingSystem = this;
-#endif
                     try
                     {
                         OnUpdate();
                     }
                     catch
                     {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                         ms_ExecutingSystem = oldExecutingSystem;
-#endif
 
                         state->AfterOnUpdate();
 
@@ -414,9 +411,7 @@ namespace Unity.Entities
                         throw;
                     }
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                     ms_ExecutingSystem = oldExecutingSystem;
-#endif
 
                     state->AfterOnUpdate();
 
@@ -440,6 +435,8 @@ namespace Unity.Entities
             }
         }
 
+        [BurstCompile]
+        [MonoPInvokeCallback(typeof(Func<IntPtr, SystemDependencySafetyUtility.SafetyErrorDetails, bool>))]
         internal static bool UnmanagedUpdate(SystemState* state, out SystemDependencySafetyUtility.SafetyErrorDetails errorDetails)
         {
             var hasSafetyError = false;
@@ -632,6 +629,46 @@ namespace Unity.Entities
             where T : struct, IComponentData
         {
             return base.GetComponentDataFromEntity<T>(isReadOnly);
+        }
+
+        /// <summary>
+        /// Gets the dynamic buffer of an entity.
+        /// </summary>
+        /// <param name="entity">The entity.</param>
+        /// <remarks>
+        /// When you call this method on the main thread, it invokes <see cref="EntityManager.GetBuffer{T}"/>.
+        /// (An [Entities.ForEach] function invoked with `Run()` executes on the main thread.) When you call this method
+        /// inside a job scheduled using [Entities.ForEach], this method gets replaced with component access methods
+        /// through <see cref="BufferFromEntity{T}"/>.
+        /// </remarks>
+        /// <typeparam name="T">The type of the buffer's elements.</typeparam>
+        /// <returns>The DynamicBuffer object for accessing the buffer contents.</returns>
+        /// <exception cref="ArgumentException">Thrown if T is an unsupported type.</exception>
+        public DynamicBuffer<T> GetBuffer<T>(Entity entity) where T : struct, IBufferElementData
+        {
+            return EntityManager.GetBuffer<T>(entity);
+        }
+
+        /// <summary>
+        /// Gets a BufferFromEntity&lt;T&gt; object that can access a <seealso cref="DynamicBuffer{T}"/>.
+        /// </summary>
+        /// <remarks>Assign the returned object to a field of your Job struct so that you can access the
+        /// contents of the buffer in a Job.
+        /// When you call this method on the main thread, it invokes <see cref="ComponentSystemBase.GetBufferFromEntity{T}"/>.
+        /// (An [Entities.ForEach] function invoked with `Run()` executes on the main thread.) When you call this method
+        /// inside a job scheduled using [Entities.ForEach], this method gets replaced direct access to
+        /// <see cref="BufferFromEntity{T}"/>.
+        ///
+        /// [Entities.ForEach]: xref:Unity.Entities.SystemBase.Entities
+        /// </remarks>
+        /// <param name="isReadOnly">Whether the buffer data is only read or is also written. Access data in
+        /// a read-only fashion whenever possible.</param>
+        /// <typeparam name="T">The type of <see cref="IBufferElementData"/> stored in the buffer.</typeparam>
+        /// <returns>An array-like object that provides access to buffers, indexed by <see cref="Entity"/>.</returns>
+        /// <seealso cref="ComponentDataFromEntity{T}"/>
+        public new BufferFromEntity<T> GetBufferFromEntity<T>(bool isReadOnly = false) where T : struct, IBufferElementData
+        {
+            return base.GetBufferFromEntity<T>(isReadOnly);
         }
     }
 }

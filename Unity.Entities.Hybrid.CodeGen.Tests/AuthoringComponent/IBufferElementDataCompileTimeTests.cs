@@ -12,7 +12,7 @@ using Unity.Entities.CodeGen.Tests;
 namespace Unity.Entities.Hybrid.CodeGen.Tests
 {
     [TestFixture]
-    internal class BufferElementDataCompileTimeTests : PostProcessorTestBase
+    class BufferElementDataCompileTimeTests : PostProcessorTestBase
     {
         [Test]
         public void WrapAroundMultipleValuesThrowsError()
@@ -28,22 +28,6 @@ namespace Unity.Entities.Hybrid.CodeGen.Tests
             AssertProducesError(
                 typeof(BufferElementWithExplicitLayout),
                 shouldContainErrors: nameof(UserError.DC0042));
-        }
-
-        [GenerateAuthoringComponent]
-        public struct BufferElementDataWithMultipleWrappedValues : IBufferElementData
-        {
-#pragma warning disable 649
-            public int Value1;
-            public int Value2;
-#pragma warning restore 649
-        }
-
-        [StructLayout(LayoutKind.Explicit, Size = 10)]
-        [GenerateAuthoringComponent]
-        public struct BufferElementWithExplicitLayout : IBufferElementData
-        {
-            [FieldOffset(3)] public byte Value;
         }
 
         protected override void AssertProducesInternal(Type systemType, DiagnosticType expectedDiagnosticType, string[] errorIdentifiers, bool useFailResolver = false)

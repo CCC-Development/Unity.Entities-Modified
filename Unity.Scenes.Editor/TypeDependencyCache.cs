@@ -2,7 +2,11 @@ using System;
 using Unity.Entities;
 using UnityEditor;
 using UnityEngine;
-using AssetImportContext = UnityEditor.Experimental.AssetImporters.AssetImportContext;
+#if UNITY_2020_2_OR_NEWER
+using UnityEditor.AssetImporters;
+#else
+using UnityEditor.Experimental.AssetImporters;
+#endif
 using System.Reflection;
 using Unity.Entities.Serialization;
 using Unity.Profiling;
@@ -61,6 +65,11 @@ namespace Unity.Scenes.Editor
             UnityEngine.Hash128 fileFormatHash = default;
             HashUnsafeUtilities.ComputeHash128(&fileFormatVersion, sizeof(int), &fileFormatHash);
             UnityEditor.Experimental.AssetDatabaseExperimental.RegisterCustomDependency("EntityBinaryFileFormatVersion", fileFormatHash);
+
+            int sceneFileFormatVersion = SceneMetaDataSerializeUtility.CurrentFileFormatVersion;
+            UnityEngine.Hash128 sceneFileFormatHash = default;
+            HashUnsafeUtilities.ComputeHash128(&sceneFileFormatVersion, sizeof(int), &sceneFileFormatHash);
+            UnityEditor.Experimental.AssetDatabaseExperimental.RegisterCustomDependency("SceneMetaDataFileFormatVersion", sceneFileFormatHash);
         }
 
         static void RegisterComponentTypes()

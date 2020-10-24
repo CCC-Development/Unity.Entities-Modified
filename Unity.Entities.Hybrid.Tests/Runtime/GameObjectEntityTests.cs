@@ -7,22 +7,13 @@ namespace Unity.Entities.Tests
 {
     //@TODO: Test for prevent adding proxy component to type system...
 
-    class GameObjectEntityTests : ECSTestsFixture
+    class GameObjectEntityTests : HybridRuntimeTestFixture
     {
-        [Test]
-        [Ignore("not implemented")]
-        public void ComponentArrayWithParentClass() {}
-
-
-        [Test]
-        public void TransformAccessArrayTests()
-        {
-        }
-
         [Test]
         public void GameObjectEntityNotAdded()
         {
             var go = new GameObject("test", typeof(GameObjectEntity));
+            MarkForAutoDestructionAfterTest(go);
             var entity = GameObjectEntity.AddToEntityManager(m_Manager, go);
 
             var x = Assert.Throws<ArgumentException>(() => { m_Manager.HasComponent<GameObjectEntity>(entity); });
@@ -42,20 +33,6 @@ namespace Unity.Entities.Tests
 
             Assert.That(m_Manager.HasComponent<MeshRenderer>(ee), Is.True);
             Assert.That(m_Manager.HasComponent<MeshRenderer>(ed), Is.False);
-        }
-
-        [Test]
-        [Ignore("TODO")]
-        public void ComponentEnumeratorInvalidChecks()
-        {
-            //* Check for string in MyEntity and other illegal constructs...
-        }
-
-        [Test]
-        [Ignore("TODO")]
-        public void AddComponentDuringForeachProtection()
-        {
-            //* Check for string in MyEntity and other illegal constructs...
         }
 
         [Test]

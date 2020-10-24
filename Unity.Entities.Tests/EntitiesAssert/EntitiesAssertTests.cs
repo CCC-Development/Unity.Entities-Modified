@@ -1,4 +1,4 @@
-#if !UNITY_DOTSPLAYER_IL2CPP
+#if !UNITY_PORTABLE_TEST_RUNNER
 // https://unity3d.atlassian.net/browse/DOTSR-1432
 // The main problem is that EntitiesAssert uses LINQ
 
@@ -242,4 +242,4 @@ namespace Unity.Entities.Tests
     }
 }
 
-#endif // UNITY_DOTSPLAYER_IL2CPP
+#endif // NET_DOTS

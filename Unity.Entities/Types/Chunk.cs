@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-
 namespace Unity.Entities
 {
     [Flags]
@@ -32,8 +31,13 @@ namespace Unity.Entities
         public int Count;
         [FieldOffset(20)]
         public int Capacity;
+
+        /// <summary>
+        /// The index of this Chunk within its ArchetypeChunkData's chunk list
+        /// </summary>
         [FieldOffset(24)]
         public int ListIndex;
+
         [FieldOffset(28)]
         public int ListWithEmptySlotsIndex;
 
@@ -54,7 +58,7 @@ namespace Unity.Entities
         [FieldOffset(kBufferOffset)]
         public fixed byte Buffer[4];
 
-        public const int kChunkSize = 16 * 1024 - 256; // allocate a bit less to allow for header overhead
+        public const int kChunkSize = 16 * 1024 - 256; // allocate a bit less to allow for UnsafeUtility.Malloc header overhead
         public const int kBufferSize = kChunkSize - kBufferOffset;
         public const int kMaximumEntitiesPerChunk = kBufferSize / 8;
 
@@ -97,14 +101,6 @@ namespace Unity.Entities
             // The amount of available space in a chunk is the max chunk size, kChunkSize,
             // minus the size of the Chunk's metadata stored in the fields preceding Chunk.Buffer
             return kChunkSize - kBufferOffset;
-        }
-
-        public static Chunk* MallocChunk(Allocator allocator)
-        {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            Assert.IsTrue(CollectionHelper.IsAligned(kBufferOffset, CollectionHelper.CacheLineSize));
-#endif
-            return (Chunk*)UnsafeUtility.Malloc(kChunkSize, CollectionHelper.CacheLineSize, allocator);
         }
 
         public bool MatchesFilter(MatchingArchetype* match, ref EntityQueryFilter filter)

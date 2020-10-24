@@ -1,7 +1,8 @@
-#if !UNITY_DOTSPLAYER
+#if !UNITY_DOTSRUNTIME
+// This is all based around IJobForEach which is deprecated - need to rewrite
 // https://unity3d.atlassian.net/browse/DOTSR-1432
 // TODO: IL2CPP_TEST_RUNNER doesn't support TextFixture with argument and other calls. Note these
-// are also generally flagged with StandaloneFixme.
+// are also generally flagged with DotsRuntimeFixme.
 
 using System;
 using System.Linq;
@@ -16,7 +17,7 @@ namespace Unity.Entities.Tests
     [TestFixture("CompleteJob1")]
     [TestFixture("CompleteJob2")]
     [TestFixture("CompleteNoJobs")]
-    [StandaloneFixme]
+    [DotsRuntimeFixme]
     class EntityQuerySyncChangeFilterTypesTests : ECSTestsFixture
     {
         bool completeJob1;
@@ -161,4 +162,4 @@ namespace Unity.Entities.Tests
         }
     }
 }
-#endif // !UNITY_DOTSPLAYER
+#endif // !UNITY_DOTSRUNTIME

@@ -62,15 +62,15 @@ namespace Unity.Entities
         [BurstCompile]
         struct BuildComponentToEntityMultiHashMap : IJobChunk
         {
-            [ReadOnly] public ArchetypeChunkComponentType<EntityGuid> ComponentType;
-            [ReadOnly] public ArchetypeChunkEntityType EntityType;
+            [ReadOnly] public ComponentTypeHandle<EntityGuid> ComponentTypeHandle;
+            [ReadOnly] public EntityTypeHandle EntityTypeHandle;
 
             [WriteOnly] public NativeMultiHashMap<EntityGuid, Entity>.ParallelWriter ComponentToEntity;
 
             public void Execute(ArchetypeChunk chunk, int entityIndex, int chunkIndex)
             {
-                var components = chunk.GetNativeArray(ComponentType);
-                var entities = chunk.GetNativeArray(EntityType);
+                var components = chunk.GetNativeArray(ComponentTypeHandle);
+                var entities = chunk.GetNativeArray(EntityTypeHandle);
                 for (var i = 0; i != entities.Length; i++)
                 {
                     ComponentToEntity.Add(components[i], entities[i]);
@@ -83,15 +83,15 @@ namespace Unity.Entities
         [BurstCompile]
         struct BuildComponentToEntityHashMap : IJobChunk
         {
-            [ReadOnly] public ArchetypeChunkComponentType<EntityGuid> ComponentType;
-            [ReadOnly] public ArchetypeChunkEntityType EntityType;
+            [ReadOnly] public ComponentTypeHandle<EntityGuid> ComponentTypeHandle;
+            [ReadOnly] public EntityTypeHandle EntityTypeHandle;
 
             [WriteOnly] public NativeHashMap<EntityGuid, Entity>.ParallelWriter ComponentToEntity;
 
             public void Execute(ArchetypeChunk chunk, int entityIndex, int chunkIndex)
             {
-                var components = chunk.GetNativeArray(ComponentType);
-                var entities = chunk.GetNativeArray(EntityType);
+                var components = chunk.GetNativeArray(ComponentTypeHandle);
+                var entities = chunk.GetNativeArray(EntityTypeHandle);
                 for (var i = 0; i != entities.Length; i++)
                 {
                     ComponentToEntity.TryAdd(components[i], entities[i]);
@@ -104,15 +104,15 @@ namespace Unity.Entities
         [BurstCompile]
         struct BuildEntityToComponentHashMap : IJobChunk
         {
-            [ReadOnly] public ArchetypeChunkComponentType<EntityGuid> EntityGuidComponentType;
-            [ReadOnly] public ArchetypeChunkEntityType EntityType;
+            [ReadOnly] public ComponentTypeHandle<EntityGuid> EntityGuidComponentTypeHandle;
+            [ReadOnly] public EntityTypeHandle EntityTypeHandle;
 
             [WriteOnly] public NativeHashMap<Entity, EntityGuid>.ParallelWriter EntityToEntityGuid;
 
             public void Execute(ArchetypeChunk chunk, int entityIndex, int chunkIndex)
             {
-                var components = chunk.GetNativeArray(EntityGuidComponentType);
-                var entities = chunk.GetNativeArray(EntityType);
+                var components = chunk.GetNativeArray(EntityGuidComponentTypeHandle);
+                var entities = chunk.GetNativeArray(EntityTypeHandle);
                 for (var i = 0; i != entities.Length; i++)
                 {
                     EntityToEntityGuid.TryAdd(entities[i], components[i]);
@@ -125,14 +125,14 @@ namespace Unity.Entities
         {
             [NativeDisableUnsafePtrRestriction] public int* Count;
             [ReadOnly] public NativeArray<ArchetypeChunk> Chunks;
-            [ReadOnly] public ArchetypeChunkBufferType<LinkedEntityGroup> LinkedEntityGroupType;
+            [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> LinkedEntityGroupTypeHandle;
 
             public void Execute()
             {
                 var count = 0;
                 for (var chunkIndex = 0; chunkIndex < Chunks.Length; chunkIndex++)
                 {
-                    var linkedEntityGroups = Chunks[chunkIndex].GetBufferAccessor(LinkedEntityGroupType);
+                    var linkedEntityGroups = Chunks[chunkIndex].GetBufferAccessor(LinkedEntityGroupTypeHandle);
                     for (var linkedEntityGroupIndex = 0; linkedEntityGroupIndex < linkedEntityGroups.Length; linkedEntityGroupIndex++)
                     {
                         count += linkedEntityGroups[linkedEntityGroupIndex].Length;
@@ -147,11 +147,11 @@ namespace Unity.Entities
         struct BuildLinkedEntityGroupHashMap : IJobChunk
         {
             [WriteOnly] public NativeHashMap<Entity, Entity>.ParallelWriter EntityToLinkedEntityGroupRoot;
-            [ReadOnly] public ArchetypeChunkBufferType<LinkedEntityGroup> LinkedEntityGroupType;
+            [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> LinkedEntityGroupTypeHandle;
 
             public void Execute(ArchetypeChunk chunk, int entityIndex, int chunkIndex)
             {
-                var linkedEntityGroups = chunk.GetBufferAccessor(LinkedEntityGroupType);
+                var linkedEntityGroups = chunk.GetBufferAccessor(LinkedEntityGroupTypeHandle);
 
                 for (var bufferIndex = 0; bufferIndex != linkedEntityGroups.Length; bufferIndex++)
                 {
@@ -374,15 +374,15 @@ namespace Unity.Entities
             s_BuildEntityLookupsProfilerMarker.Begin();
             var buildEntityGuidToEntity = new BuildComponentToEntityMultiHashMap
             {
-                EntityType = entityManager.GetArchetypeChunkEntityType(),
-                ComponentType = entityManager.GetArchetypeChunkComponentType<EntityGuid>(true),
+                EntityTypeHandle = entityManager.GetEntityTypeHandle(),
+                ComponentTypeHandle = entityManager.GetComponentTypeHandle<EntityGuid>(true),
                 ComponentToEntity = entityGuidToEntity.AsParallelWriter()
             }.Schedule(entityQuery);
 
             var buildEntityToEntityGuid = new BuildEntityToComponentHashMap
             {
-                EntityType = entityManager.GetArchetypeChunkEntityType(),
-                EntityGuidComponentType = entityManager.GetArchetypeChunkComponentType<EntityGuid>(true),
+                EntityTypeHandle = entityManager.GetEntityTypeHandle(),
+                EntityGuidComponentTypeHandle = entityManager.GetComponentTypeHandle<EntityGuid>(true),
                 EntityToEntityGuid = entityToEntityGuid.AsParallelWriter()
             }.Schedule(entityQuery);
 
@@ -401,15 +401,15 @@ namespace Unity.Entities
             s_BuildPrefabAndLinkedEntityGroupLookupsProfilerMarker.Begin();
             var buildPrefabLookups = new BuildComponentToEntityHashMap
             {
-                EntityType = entityManager.GetArchetypeChunkEntityType(),
-                ComponentType = entityManager.GetArchetypeChunkComponentType<EntityGuid>(true),
+                EntityTypeHandle = entityManager.GetEntityTypeHandle(),
+                ComponentTypeHandle = entityManager.GetComponentTypeHandle<EntityGuid>(true),
                 ComponentToEntity = entityGuidToPrefab.AsParallelWriter()
             }.Schedule(prefabQuery);
 
             var buildLinkedEntityGroupLookups = new BuildLinkedEntityGroupHashMap
             {
                 EntityToLinkedEntityGroupRoot = entityToLinkedEntityGroupRoot.AsParallelWriter(),
-                LinkedEntityGroupType = entityManager.GetArchetypeChunkBufferType<LinkedEntityGroup>(true)
+                LinkedEntityGroupTypeHandle = entityManager.GetBufferTypeHandle<LinkedEntityGroup>(true)
             }.Schedule(linkedEntityGroupQuery);
 
             JobHandle.CombineDependencies(buildPrefabLookups, buildLinkedEntityGroupLookups).Complete();
@@ -678,6 +678,7 @@ namespace Unity.Entities
         {
             s_ApplySetManagedComponentsProfilerMarker.Begin();
             var entitiesWithCompanionLink = new NativeList<Entity>(Allocator.Temp);
+            var managedObjectClone = new ManagedObjectClone();
 
             for (var i = 0; i < managedComponentDataChanges.Length; i++)
             {
@@ -703,7 +704,7 @@ namespace Unity.Entities
                     }
                     else
                     {
-                        var clone = ManagedComponentStore.CloneManagedComponent(packedManagedComponentDataChange.BoxedValue);
+                        var clone = managedObjectClone.Clone(packedManagedComponentDataChange.BoxedValue);
                         entityManager.SetComponentObject(entity, component, clone);
 
                         if (component.TypeIndex == ManagedComponentStore.CompanionLinkTypeIndex)
@@ -723,6 +724,111 @@ namespace Unity.Entities
             s_ApplySetManagedComponentsProfilerMarker.End();
         }
 
+        struct SetComponentError
+        {
+            public ComponentType ComponentType;
+            public EntityGuid Guid;
+        }
+
+        [BurstCompile]
+        struct ApplySetComponentsJob : IJob
+        {
+            public EntityManager EntityManager;
+            [ReadOnly]
+            public NativeArray<PackedComponentDataChange> Changes;
+            [ReadOnly]
+            public NativeArray<byte> Payload;
+            [ReadOnly]
+            public NativeArray<EntityGuid> PackedEntityGuids;
+            [ReadOnly]
+            public NativeMultiHashMap<int, Entity> PackedEntities;
+            [ReadOnly]
+            public NativeArray<ComponentType> PackedTypes;
+
+            public NativeMultiHashMap<EntityGuid, Entity> EntityGuidToEntity;
+            public NativeHashMap<Entity, EntityGuid> EntityToEntityGuid;
+
+            public NativeList<SetComponentError> EntityDoesNotExist;
+            public NativeList<SetComponentError> ComponentDoesNotExist;
+
+            public void Execute()
+            {
+                var entityGuidTypeIndex = TypeManager.GetTypeIndex<EntityGuid>();
+
+                var offset = 0L;
+                for (var i = 0; i < Changes.Length; i++)
+                {
+                    var packedComponentDataChange = Changes[i];
+                    var packedComponent = packedComponentDataChange.Component;
+                    var component = PackedTypes[packedComponent.PackedTypeIndex];
+                    var size = packedComponentDataChange.Size;
+                    var data = (byte*)Payload.GetUnsafeReadOnlyPtr() + offset;
+                    var componentTypeInArchetype = new ComponentTypeInArchetype(component);
+
+                    if (PackedEntities.TryGetFirstValue(packedComponent.PackedEntityIndex, out var entity, out var iterator))
+                    {
+                        do
+                        {
+                            if (!EntityManager.Exists(entity))
+                            {
+                                EntityDoesNotExist.Add(new SetComponentError
+                                {
+                                    ComponentType = component, Guid =PackedEntityGuids[packedComponent.PackedEntityIndex]
+                                });
+                            }
+                            else if (!EntityManager.HasComponent(entity, component))
+                            {
+                                ComponentDoesNotExist.Add(new SetComponentError
+                                {
+                                    ComponentType = component, Guid =PackedEntityGuids[packedComponent.PackedEntityIndex]
+                                });
+                            }
+                            else
+                            {
+                                if (componentTypeInArchetype.IsZeroSized)
+                                {
+                                    // Nothing to set.
+                                }
+                                else if (componentTypeInArchetype.IsBuffer)
+                                {
+                                    var typeInfo = TypeManager.GetTypeInfo(componentTypeInArchetype.TypeIndex);
+                                    var elementSize = typeInfo.ElementSize;
+                                    var lengthInElements = size / elementSize;
+                                    var header = (BufferHeader*)EntityManager.GetComponentDataRawRW(entity, component.TypeIndex);
+                                    BufferHeader.Assign(header, data, lengthInElements, elementSize, 16, false, 0);
+                                }
+                                else
+                                {
+                                    var target = (byte*)EntityManager.GetComponentDataRawRW(entity, component.TypeIndex);
+
+                                    // Perform incremental updates on the entityGuidToEntity map to avoid a full rebuild.
+                                    if (componentTypeInArchetype.TypeIndex == entityGuidTypeIndex)
+                                    {
+                                        EntityGuid entityGuid;
+                                        UnsafeUtility.MemCpy(&entityGuid, target, sizeof(EntityGuid));
+
+                                        if (!entityGuid.Equals(default))
+                                        {
+                                            EntityGuidToEntity.Remove(entityGuid, entity);
+                                        }
+
+                                        UnsafeUtility.MemCpy(&entityGuid, data + packedComponentDataChange.Offset, size);
+                                        EntityGuidToEntity.Add(entityGuid, entity);
+                                        EntityToEntityGuid.TryAdd(entity, entityGuid);
+                                    }
+
+                                    UnsafeUtility.MemCpy(target + packedComponentDataChange.Offset, data, size);
+                                }
+                            }
+                        }
+                        while (PackedEntities.TryGetNextValue(out entity, ref iterator));
+                    }
+
+                    offset += size;
+                }
+            }
+        }
+
         static void ApplySetComponents(
             EntityManager entityManager,
             NativeArray<PackedComponentDataChange> changes,
@@ -734,80 +840,48 @@ namespace Unity.Entities
             NativeHashMap<Entity, EntityGuid> entityToEntityGuid)
         {
             s_ApplySetComponentsProfilerMarker.Begin();
-            var entityGuidTypeIndex = TypeManager.GetTypeIndex<EntityGuid>();
-
-            var offset = 0L;
-            for (var i = 0; i < changes.Length; i++)
+            var entityDoesNotExist = new NativeList<SetComponentError>(Allocator.TempJob);
+            var componentDoesNotExist = new NativeList<SetComponentError>(Allocator.TempJob);
+            new ApplySetComponentsJob
             {
-                var packedComponentDataChange = changes[i];
-                var packedComponent = packedComponentDataChange.Component;
-                var component = packedTypes[packedComponent.PackedTypeIndex];
-                var size = packedComponentDataChange.Size;
-                var data = (byte*)payload.GetUnsafeReadOnlyPtr() + offset;
-                var componentTypeInArchetype = new ComponentTypeInArchetype(component);
+                Changes = changes,
+                ComponentDoesNotExist = componentDoesNotExist,
+                EntityDoesNotExist = entityDoesNotExist,
+                EntityGuidToEntity = entityGuidToEntity,
+                EntityManager = entityManager,
+                EntityToEntityGuid = entityToEntityGuid,
+                PackedEntities = packedEntities,
+                PackedEntityGuids = packedEntityGuids,
+                PackedTypes = packedTypes,
+                Payload = payload
+            }.Run();
 
-                if (packedEntities.TryGetFirstValue(packedComponent.PackedEntityIndex, out var entity, out var iterator))
-                {
-                    do
-                    {
-                        if (!entityManager.Exists(entity))
-                        {
-                            Debug.LogWarning($"SetComponent<{component}>({packedEntityGuids[packedComponent.PackedEntityIndex]}) but entity does not exist.");
-                        }
-                        else if (!entityManager.HasComponent(entity, component))
-                        {
-                            Debug.LogWarning($"SetComponent<{component}>({packedEntityGuids[packedComponent.PackedEntityIndex]}) but component does not exist.");
-                        }
-                        else
-                        {
-                            if (componentTypeInArchetype.IsZeroSized)
-                            {
-                                // Nothing to set.
-                            }
-                            else if (componentTypeInArchetype.IsBuffer)
-                            {
-                                var typeInfo = TypeManager.GetTypeInfo(componentTypeInArchetype.TypeIndex);
-                                var elementSize = typeInfo.ElementSize;
-                                var lengthInElements = size / elementSize;
-                                var header = (BufferHeader*)entityManager.GetComponentDataRawRW(entity, component.TypeIndex);
-                                BufferHeader.Assign(header, data, lengthInElements, elementSize, 16, false, 0);
-                            }
-                            else
-                            {
-                                var target = (byte*)entityManager.GetComponentDataRawRW(entity, component.TypeIndex);
-
-                                // Perform incremental updates on the entityGuidToEntity map to avoid a full rebuild.
-                                if (componentTypeInArchetype.TypeIndex == entityGuidTypeIndex)
-                                {
-                                    EntityGuid entityGuid;
-                                    UnsafeUtility.MemCpy(&entityGuid, target, sizeof(EntityGuid));
-
-                                    if (!entityGuid.Equals(default))
-                                    {
-                                        entityGuidToEntity.Remove(entityGuid, entity);
-                                    }
-
-                                    UnsafeUtility.MemCpy(&entityGuid, data + packedComponentDataChange.Offset, size);
-                                    entityGuidToEntity.Add(entityGuid, entity);
-                                    entityToEntityGuid.TryAdd(entity, entityGuid);
-                                }
-
-                                UnsafeUtility.MemCpy(target + packedComponentDataChange.Offset, data, size);
-                            }
-                        }
-                    }
-                    while (packedEntities.TryGetNextValue(out entity, ref iterator));
-                }
-
-                offset += size;
+            for (int i = 0; i < entityDoesNotExist.Length; i++)
+            {
+                var error = entityDoesNotExist[i];
+                Debug.LogWarning($"SetComponent<{error.ComponentType}>({error.Guid}) but entity does not exist.");
             }
+            for (int i = 0; i < componentDoesNotExist.Length; i++)
+            {
+                var error = componentDoesNotExist[i];
+                Debug.LogWarning($"SetComponent<{error.ComponentType}>({error.Guid}) but entity does not exist.");
+            }
+
+            entityDoesNotExist.Dispose();
+            componentDoesNotExist.Dispose();
             s_ApplySetComponentsProfilerMarker.End();
         }
 
-        internal struct OffsetEntityPair
+        internal struct ManagedObjectEntityReferencePatch
         {
-            public int Offset;
+            public int Id;
             public Entity TargetEntity;
+        }
+
+        internal struct ManagedObjectBlobAssetReferencePatch
+        {
+            public int Id;
+            public ulong Target;
         }
 
         internal struct EntityComponentPair : IEquatable<EntityComponentPair>
@@ -833,7 +907,8 @@ namespace Unity.Entities
             NativeHashMap<Entity, Entity> entityToLinkedEntityGroupRoot)
         {
             s_ApplyEntityPatchesProfilerMarker.Begin();
-            NativeMultiHashMap<EntityComponentPair, OffsetEntityPair> managedComponentPatchMap = new NativeMultiHashMap<EntityComponentPair, OffsetEntityPair>(changes.Length, Allocator.Temp);
+
+            var managedObjectEntityReferencePatches = new NativeMultiHashMap<EntityComponentPair, ManagedObjectEntityReferencePatch>(changes.Length, Allocator.Temp);
 
             for (var i = 0; i < changes.Length; i++)
             {
@@ -919,11 +994,11 @@ namespace Unity.Entities
                                 var pointer = (byte*)entityManager.GetBufferRawRW(entity, component.TypeIndex);
                                 UnsafeUtility.MemCpy(pointer + targetOffset, &targetEntity, sizeof(Entity));
                             }
-                            else if (component.IsManagedComponent)
+                            else if (component.IsManagedComponent || component.IsSharedComponent)
                             {
-                                managedComponentPatchMap.Add(
-                                    new EntityComponentPair() { Entity = entity, Component = component },
-                                    new OffsetEntityPair() { Offset = targetOffset, TargetEntity = targetEntity });
+                                managedObjectEntityReferencePatches.Add(
+                                    new EntityComponentPair { Entity = entity, Component = component },
+                                    new ManagedObjectEntityReferencePatch { Id = targetOffset, TargetEntity = targetEntity });
                             }
                             else
                             {
@@ -936,19 +1011,33 @@ namespace Unity.Entities
                 }
             }
 
-            // Apply all managed entity patches
-            using (var keys = managedComponentPatchMap.GetKeyArray(Allocator.Temp))
-            {
-                foreach (var ecPair in keys)
-                {
-                    var obj = entityManager.GetComponentObject<object>(ecPair.Entity, ecPair.Component);
-                    var patches = managedComponentPatchMap.GetValuesForKey(ecPair);
+#if !UNITY_DOTSRUNTIME
+            var managedObjectPatcher = new ManagedObjectEntityReferencePatcher();
 
-                    PatchEntitiesInObject(obj, patches);
+            // Apply all managed entity patches
+            using (var keys = managedObjectEntityReferencePatches.GetKeyArray(Allocator.Temp))
+            {
+                foreach (var pair in keys)
+                {
+                    var patches = managedObjectEntityReferencePatches.GetValuesForKey(pair);
+
+                    if (pair.Component.IsManagedComponent)
+                    {
+                        var obj = entityManager.GetComponentObject<object>(pair.Entity, pair.Component);
+                        managedObjectPatcher.ApplyPatches(ref obj, patches);
+                    }
+                    else if (pair.Component.IsSharedComponent)
+                    {
+                        var obj = entityManager.GetSharedComponentData(pair.Entity, pair.Component.TypeIndex);
+                        managedObjectPatcher.ApplyPatches(ref obj, patches);
+                        entityManager.SetSharedComponentDataBoxedDefaultMustBeNull(pair.Entity, pair.Component.TypeIndex, obj);
+                    }
+
                     patches.Dispose();
                 }
             }
-            managedComponentPatchMap.Dispose();
+#endif
+            managedObjectEntityReferencePatches.Dispose();
             s_ApplyEntityPatchesProfilerMarker.End();
         }
 
@@ -1175,52 +1264,43 @@ namespace Unity.Entities
                 {
                     Count = &count,
                     Chunks = chunks,
-                    LinkedEntityGroupType = entityManager.GetArchetypeChunkBufferType<LinkedEntityGroup>(true)
+                    LinkedEntityGroupTypeHandle = entityManager.GetBufferTypeHandle<LinkedEntityGroup>(true)
                 }.Schedule().Complete();
             }
 
             return count;
         }
 
-        static void PatchEntitiesInObject(object obj, NativeMultiHashMap<EntityComponentPair, OffsetEntityPair>.Enumerator patches)
+#if !UNITY_DOTSRUNTIME
+        class ManagedObjectEntityReferencePatcher : PropertyVisitor, Properties.Adapters.IVisit<Entity>
         {
-#if !NET_DOTS
-            PropertyContainer.Visit(obj, new EntityDiffPatcher(patches));
-#endif
-        }
+            NativeMultiHashMap<EntityComponentPair, ManagedObjectEntityReferencePatch>.Enumerator Patches;
 
-#if !NET_DOTS
-        class EntityDiffPatcher : PropertyVisitor
-        {
-            public EntityDiffPatcher(NativeMultiHashMap<EntityComponentPair, OffsetEntityPair>.Enumerator patches)
+            public ManagedObjectEntityReferencePatcher()
             {
-                AddAdapter(new EntityPatchAdapter(patches));
+                AddAdapter(this);
             }
 
-            class EntityPatchAdapter : Properties.Adapters.IVisit<Entity>
+            public void ApplyPatches(ref object obj, NativeMultiHashMap<EntityComponentPair, ManagedObjectEntityReferencePatch>.Enumerator patches)
             {
-                readonly NativeMultiHashMap<EntityComponentPair, OffsetEntityPair>.Enumerator Patches;
+                Patches = patches;
+                PropertyContainer.Visit(ref obj, this);
+            }
 
-                public EntityPatchAdapter(NativeMultiHashMap<EntityComponentPair, OffsetEntityPair>.Enumerator patches)
+            VisitStatus Properties.Adapters.IVisit<Entity>.Visit<TContainer>(Property<TContainer, Entity> property, ref TContainer container, ref Entity value)
+            {
+                // Make a copy for we can re-use the enumerator
+                var patches = Patches;
+                foreach (var patch in patches)
                 {
-                    Patches = patches;
-                }
-
-                public VisitStatus Visit<TContainer>(Property<TContainer, Entity> property, ref TContainer container, ref Entity value)
-                {
-                    // Make a copy for we can re-use the enumerator
-                    var patches = Patches;
-                    foreach (var patch in patches)
+                    if (value.Index == patch.Id)
                     {
-                        if (value.Index == patch.Offset)
-                        {
-                            value = patch.TargetEntity;
-                            break;
-                        }
+                        value = patch.TargetEntity;
+                        break;
                     }
-
-                    return VisitStatus.Stop;
                 }
+
+                return VisitStatus.Stop;
             }
         }
 #endif

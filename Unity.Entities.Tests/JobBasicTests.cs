@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 
@@ -40,7 +41,7 @@ namespace Unity.Entities.Tests
                 for (int i = 0; i < N; ++i)
                     result[i] = a + b;
 
-#if UNITY_DOTSPLAYER    // TODO: Don't have the library in the editor that grants access.
+#if UNITY_DOTSRUNTIME && ENABLE_UNITY_COLLECTIONS_CHECKS    // TODO: Don't have the library in the editor that grants access.
                 AssertOnThread(result.m_Safety.IsAllowedToWrite());
                 AssertOnThread(!result.m_Safety.IsAllowedToRead());
 #endif
@@ -106,14 +107,14 @@ namespace Unity.Entities.Tests
 
             public void Execute()
             {
-#if UNITY_DOTSPLAYER    // Don't have the C# version in the editor.
+#if UNITY_DOTSRUNTIME && ENABLE_UNITY_COLLECTIONS_CHECKS    // Don't have the C# version in the editor.
                 AssertOnThread(!input.m_Safety.IsAllowedToWrite());
                 AssertOnThread(input.m_Safety.IsAllowedToRead());
                 AssertOnThread(result.m_Safety.IsAllowedToWrite());
                 AssertOnThread(!result.m_Safety.IsAllowedToRead());
 
 #if UNITY_SINGLETHREADED_JOBS
-                AssertOnThread(JobsUtility.IsExecutingJob());
+                AssertOnThread(JobsUtility.IsExecutingJob);
 #endif
 #endif
                 for (int i = 0; i < N; ++i)
@@ -124,7 +125,7 @@ namespace Unity.Entities.Tests
         [Test]
         public void Run3SimpleJobsInSerial()
         {
-#if UNITY_SINGLETHREADED_JOBS && UNITY_DOTSPLAYER
+#if UNITY_DOTSRUNTIME
             // Note the safety handles use Persistent, so only track TempJob
             long heapMem = UnsafeUtility.GetHeapSize(Allocator.TempJob);
 #endif
@@ -142,18 +143,14 @@ namespace Unity.Entities.Tests
             SimpleAddSerial job2 = new SimpleAddSerial() {a = 2, input = jobResult1, result = jobResult2};
             SimpleAddSerial job3 = new SimpleAddSerial() {a = 3, input = jobResult2, result = jobResult3};
 
-#if UNITY_SINGLETHREADED_JOBS && UNITY_DOTSPLAYER
-            Assert.IsFalse(JobsUtility.IsExecutingJob());
-#endif
+            Assert.IsFalse(JobsUtility.IsExecutingJob);
 
             JobHandle handle1 = job1.Schedule();
             JobHandle handle2 = job2.Schedule(handle1);
             JobHandle handle3 = job3.Schedule(handle2);
             handle3.Complete();
 
-#if UNITY_SINGLETHREADED_JOBS && UNITY_DOTSPLAYER
-            Assert.IsFalse(JobsUtility.IsExecutingJob());
-#endif
+            Assert.IsFalse(JobsUtility.IsExecutingJob);
 
             for (int i = 0; i < SimpleAddSerial.N; ++i)
             {
@@ -162,7 +159,7 @@ namespace Unity.Entities.Tests
 
             jobResult3.Dispose();
 
-#if UNITY_SINGLETHREADED_JOBS && UNITY_DOTSPLAYER
+#if UNITY_DOTSRUNTIME
             long postWork = UnsafeUtility.GetHeapSize(Allocator.TempJob);
             Assert.IsTrue(heapMem == postWork);    // make sure cleanup happened, including DeallocateOnJobCompletion
 #endif
@@ -187,10 +184,6 @@ namespace Unity.Entities.Tests
             }
         }
 
-#if UNITY_DOTSPLAYER_IL2CPP
-        // https://unity3d.atlassian.net/browse/DOTSR-1365
-        [Ignore("Crash because of array pinning.")]
-#endif
         [Test]
         public void Schedule3SimpleJobsInParallel()
         {
@@ -244,7 +237,7 @@ namespace Unity.Entities.Tests
 
             public void Execute()
             {
-#if UNITY_DOTSPLAYER    // Don't have the C# version in the editor.
+#if UNITY_DOTSRUNTIME && ENABLE_UNITY_COLLECTIONS_CHECKS   // Don't have the C# version in the editor.
                 AssertOnThread(!input.m_Safety.IsAllowedToWrite());
                 AssertOnThread(input.m_Safety.IsAllowedToRead());
                 AssertOnThread(result.m_Safety.IsAllowedToWrite());
@@ -255,10 +248,6 @@ namespace Unity.Entities.Tests
             }
         }
 
-#if UNITY_DOTSPLAYER_IL2CPP
-        // https://unity3d.atlassian.net/browse/DOTSR-1365
-        [Ignore("Crash because of array pinning.")]
-#endif
         [Test]
         public void Schedule3SimpleListJobsInParallel()
         {
@@ -317,7 +306,7 @@ namespace Unity.Entities.Tests
 
             public void Execute(int i)
             {
-#if UNITY_DOTSPLAYER    // Don't have the C# version in the editor.
+#if UNITY_DOTSRUNTIME && ENABLE_UNITY_COLLECTIONS_CHECKS    // Don't have the C# version in the editor.
                 AssertOnThread(!a.m_Safety.IsAllowedToWrite());
                 AssertOnThread(a.m_Safety.IsAllowedToRead());
                 AssertOnThread(!b.m_Safety.IsAllowedToWrite());
@@ -572,7 +561,7 @@ namespace Unity.Entities.Tests
 
             public void Execute()
             {
-#if UNITY_DOTSPLAYER    // Don't have the C# version in the editor.
+#if UNITY_DOTSRUNTIME && ENABLE_UNITY_COLLECTIONS_CHECKS   // Don't have the C# version in the editor.
                 Assert.IsTrue(result.m_Safety.IsAllowedToWrite());
                 Assert.IsTrue(!result.m_Safety.IsAllowedToRead());
 #endif
@@ -600,17 +589,16 @@ namespace Unity.Entities.Tests
             map.Dispose();
         }
 
-        public struct SimpleChunk<T> : IJobChunk
-            where T : struct, IEquatable<T>
+        public struct SimpleChunkJob : IJobChunk
         {
-            public ArchetypeChunkComponentType<EcsTestData> testType;
+            public ComponentTypeHandle<EcsTestData> TestTypeHandle;
 
             [ReadOnly]
-            public NativeList<T> listOfT;
+            public NativeList<int> listOfInt;
 
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
-                NativeArray<EcsTestData> chunkData = chunk.GetNativeArray(testType);
+                NativeArray<EcsTestData> chunkData = chunk.GetNativeArray(TestTypeHandle);
 
                 for (int i = 0; i < chunk.Count; ++i)
                 {
@@ -620,15 +608,14 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        public void ScheduleSimpleIJobChunk()
+        public void TestSimpleIJobChunk([Values(0, 1, 2, 3)] int mode, [Values(1, 100)] int n)
         {
-            const int N = 1000;
-            NativeArray<Entity> eArr = new NativeArray<Entity>(N, Allocator.TempJob);
+            NativeArray<Entity> eArr = new NativeArray<Entity>(n, Allocator.TempJob);
             var arch = m_Manager.CreateArchetype(typeof(EcsTestData));
 
             m_Manager.CreateEntity(arch, eArr);
 
-            for (int i = 0; i < N; ++i)
+            for (int i = 0; i < n; ++i)
             {
                 m_Manager.SetComponentData(eArr[i], new EcsTestData() {value = 10 + i});
             }
@@ -636,14 +623,28 @@ namespace Unity.Entities.Tests
             NativeList<int> listOfInt = new NativeList<int>(1, Allocator.TempJob);
 
             EntityQuery query = EmptySystem.GetEntityQuery(typeof(EcsTestData));
-            var job = new SimpleChunk<int>
+            var job = new SimpleChunkJob
             {
-                testType = m_Manager.GetArchetypeChunkComponentType<EcsTestData>(false),
-                listOfT = listOfInt
+                TestTypeHandle = m_Manager.GetComponentTypeHandle<EcsTestData>(false),
+                listOfInt = listOfInt
             };
-            job.Schedule(query).Complete();
+            switch (mode)
+            {
+                case 0:
+                    job.Schedule(query).Complete();
+                    break;
+                case 1:
+                    job.ScheduleParallel(query).Complete();
+                    break;
+                case 2:
+                    job.ScheduleSingle(query).Complete();
+                    break;
+                case 3:
+                    job.Run(query);
+                    break;
+            }
 
-            for (int i = 0; i < N; ++i)
+            for (int i = 0; i < n; ++i)
             {
                 EcsTestData data = m_Manager.GetComponentData<EcsTestData>(eArr[i]);
                 Assert.AreEqual(10 + i + 100, data.value);
@@ -651,40 +652,51 @@ namespace Unity.Entities.Tests
 
             listOfInt.Dispose();
             eArr.Dispose();
+        }
+
+        public struct SimpleJobFor : IJobFor
+        {
+            [WriteOnly]
+            public NativeHashMap<int, int>.ParallelWriter result;
+
+            public void Execute(int i)
+            {
+                result.TryAdd(i, 123);
+            }
         }
 
         [Test]
-        public void RunSimpleIJobChunk()
+        public void TestIJobFor([Values(0, 1, 2)] int mode)
         {
             const int N = 1000;
-            NativeArray<Entity> eArr = new NativeArray<Entity>(N, Allocator.TempJob);
-            var arch = m_Manager.CreateArchetype(typeof(EcsTestData));
 
-            m_Manager.CreateEntity(arch, eArr);
-
-            for (int i = 0; i < N; ++i)
+            NativeHashMap<int, int> output = new NativeHashMap<int, int>(N, Allocator.TempJob);
+            SimpleJobFor job = new SimpleJobFor()
             {
-                m_Manager.SetComponentData(eArr[i], new EcsTestData() {value = 10 + i});
-            }
-
-            NativeList<int> listOfInt = new NativeList<int>(1, Allocator.TempJob);
-
-            EntityQuery query = EmptySystem.GetEntityQuery(typeof(EcsTestData));
-            var job = new SimpleChunk<int>
-            {
-                testType = m_Manager.GetArchetypeChunkComponentType<EcsTestData>(false),
-                listOfT = listOfInt
+                result = output.AsParallelWriter()
             };
-            job.Run(query);
 
-            for (int i = 0; i < N; ++i)
+            if (mode == 0)
             {
-                EcsTestData data = m_Manager.GetComponentData<EcsTestData>(eArr[i]);
-                Assert.AreEqual(10 + i + 100, data.value);
+                job.Run(N);
+            }
+            else if (mode == 1)
+            {
+                job.Schedule(N, new JobHandle()).Complete();
+            }
+            else
+            {
+                job.ScheduleParallel(N, 13, new JobHandle()).Complete();
             }
 
-            listOfInt.Dispose();
-            eArr.Dispose();
+            Assert.AreEqual(N, output.Count());
+            for (int i = 0; i < N; ++i)
+            {
+                Assert.AreEqual(123, output[i]);
+            }
+
+            output.Dispose();
         }
+
     }
 }

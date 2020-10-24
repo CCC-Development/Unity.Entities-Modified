@@ -6,7 +6,7 @@ namespace Unity.Entities.Tests
     [TestFixture]
     sealed class EntityPatcherTests : EntityDifferTestFixture
     {
-#if !UNITY_DOTSPLAYER_IL2CPP
+#if !UNITY_PORTABLE_TEST_RUNNER
         // https://unity3d.atlassian.net/browse/DOTSR-1435
         // These tests cause crashes in the IL2CPP runner. Cause not yet debugged.
         [Test]
@@ -121,34 +121,6 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [Ignore("Not currently supported")]
-        public void EntityPatcher_ApplyChanges_RemapEntityReferencesInSharedComponents()
-        {
-            using (var differ = new EntityManagerDiffer(SrcEntityManager, Allocator.TempJob))
-            {
-                // Create extra entity to make sure test doesn't accidentally succeed with no remapping
-                SrcEntityManager.CreateEntity();
-
-                var entityGuid0 = CreateEntityGuid();
-                var entityGuid1 = CreateEntityGuid();
-
-                var e0 = SrcEntityManager.CreateEntity(typeof(EntityGuid), typeof(EcsTestSharedCompEntity));
-                var e1 = SrcEntityManager.CreateEntity(typeof(EntityGuid), typeof(EcsTestSharedCompEntity));
-
-                SrcEntityManager.SetComponentData(e0, entityGuid0);
-                SrcEntityManager.SetComponentData(e1, entityGuid1);
-
-                SrcEntityManager.SetSharedComponentData(e0, new EcsTestSharedCompEntity { value = e1 });
-                SrcEntityManager.SetSharedComponentData(e1, new EcsTestSharedCompEntity { value = e0 });
-
-                PushChanges(differ, DstEntityManager);
-
-                Assert.AreEqual(GetEntity(DstEntityManager, entityGuid1), GetSharedComponentData<EcsTestSharedCompEntity>(DstEntityManager, entityGuid0).value);
-                Assert.AreEqual(GetEntity(DstEntityManager, entityGuid0), GetSharedComponentData<EcsTestSharedCompEntity>(DstEntityManager, entityGuid1).value);
-            }
-        }
-
-        [Test]
         public void EntityPatcher_ApplyChanges_UnidentifiedEntityReferenceBecomesNull()
         {
             using (var differ = new EntityManagerDiffer(SrcEntityManager, Allocator.TempJob))
@@ -220,7 +192,6 @@ namespace Unity.Entities.Tests
             }
         }
 
-#if !NET_DOTS
         [Test]
         public unsafe void EntityPatcher_ApplyChanges_CreateSharedComponent()
         {
@@ -252,6 +223,7 @@ namespace Unity.Entities.Tests
             }
         }
 
+#if !UNITY_DOTSRUNTIME  // Related to shared components
         [Test]
         public void EntityPatcher_ApplyChanges_ChangeSharedComponent()
         {
@@ -705,7 +677,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [Ignore("Not currently supported")]
+        [DotsRuntimeFixme] // Requires Unity.Properties
         public void EntityPatcher_ApplyChanges_RemapEntityReferencesInManagedComponents()
         {
             using (var differ = new EntityManagerDiffer(SrcEntityManager, Allocator.TempJob))
@@ -734,10 +706,9 @@ namespace Unity.Entities.Tests
             }
         }
 
-#if !UNITY_DOTSPLAYER_IL2CPP
-// https://unity3d.atlassian.net/browse/DOTSR-1432
+        // https://unity3d.atlassian.net/browse/DOTSR-1432
         [Test]
-        [StandaloneFixme] // No support for PinGCObject
+        [DotsRuntimeFixme] // No support for PinGCObject
         public void EntityPatcher_ApplyChanges_RemapEntityReferencesInManagedComponentCollection()
         {
             using (var differ = new EntityManagerDiffer(SrcEntityManager, Allocator.TempJob))
@@ -771,8 +742,6 @@ namespace Unity.Entities.Tests
                 Assert.AreEqual(GetEntity(DstEntityManager, entityGuid0), c1.value1[2]);
             }
         }
-
-#endif
 
         [Test]
         public void EntityPatcher_ApplyChanges_AddComponent_ManagedComponents()
@@ -888,6 +857,6 @@ namespace Unity.Entities.Tests
             }
         }
 
-#endif    // !UNITY_DOTSPLAYER_IL2CPP
+#endif    // !UNITY_PORTABLE_TEST_RUNNER
     }
 }

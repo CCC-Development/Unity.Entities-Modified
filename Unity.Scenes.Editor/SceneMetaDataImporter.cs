@@ -4,7 +4,11 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Scenes;
 using UnityEditor;
+#if UNITY_2020_2_OR_NEWER
+using UnityEditor.AssetImporters;
+#else
 using UnityEditor.Experimental.AssetImporters;
+#endif
 using UnityEditor.SceneManagement;
 
 [ScriptedImporter(39, "sceneMetaData")]
@@ -21,6 +25,9 @@ class SceneMetaDataImporter : ScriptedImporter
     public static Hash128[] GetSubSceneGuids(string guid)
     {
         var hash = AssetDatabaseCompatibility.GetArtifactHash(guid, typeof(SceneMetaDataImporter), ImportMode.Synchronous);
+        if (!hash.isValid)
+            throw new ArgumentException($"Invalid artifact hash from guid {guid}");
+
         AssetDatabaseCompatibility.GetArtifactPaths(hash, out string[] paths);
 
         var metaPath = paths.First(o => o.EndsWith("scenemeta"));

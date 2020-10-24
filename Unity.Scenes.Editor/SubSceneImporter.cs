@@ -1,58 +1,72 @@
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Entities.Serialization;
 using Unity.Build;
+using Unity.Build.DotsRuntime;
+using Unity.Core.Compression;
 using UnityEditor;
+using UnityEditor.Build.Content;
 using UnityEditor.SceneManagement;
-using AssetImportContext = UnityEditor.Experimental.AssetImporters.AssetImportContext;
+#if UNITY_2020_2_OR_NEWER
+using UnityEditor.AssetImporters;
+#else
+using UnityEditor.Experimental.AssetImporters;
+#endif
 
 namespace Unity.Scenes.Editor
 {
-    [UnityEditor.Experimental.AssetImporters.ScriptedImporter(72, "extDontMatter")]
+    [ScriptedImporter(84, "extDontMatter")]
     [InitializeOnLoad]
-    class SubSceneImporter : UnityEditor.Experimental.AssetImporters.ScriptedImporter
+    class SubSceneImporter : ScriptedImporter
     {
         static SubSceneImporter()
         {
             EntityScenesPaths.SubSceneImporterType = typeof(SubSceneImporter);
         }
 
-        static unsafe NativeList<RuntimeGlobalObjectId> ReferencedUnityObjectsToRuntimeGlobalObjectIds(ReferencedUnityObjects referencedUnityObjects, Allocator allocator = Allocator.Temp)
+        static unsafe NativeList<Hash128> ReferencedUnityObjectsToGUIDs(ReferencedUnityObjects referencedUnityObjects, AssetImportContext ctx)
         {
             var globalObjectIds = new GlobalObjectId[referencedUnityObjects.Array.Length];
-            var runtimeGlobalObjIDs = new NativeList<RuntimeGlobalObjectId>(globalObjectIds.Length, allocator);
+            var guids = new NativeList<Hash128>(globalObjectIds.Length, Allocator.Temp);
 
             GlobalObjectId.GetGlobalObjectIdsSlow(referencedUnityObjects.Array, globalObjectIds);
 
             for (int i = 0; i != globalObjectIds.Length; i++)
             {
-                var globalObjectId = globalObjectIds[i];
-
-                //@TODO: HACK (Object is a scene object)
-                if (globalObjectId.identifierType == 2)
+                var assetGUID = globalObjectIds[i].assetGUID;
+                // Skip most built-ins, except for BuiltInExtra which we need to depend on
+                if (GUIDHelper.IsBuiltin(assetGUID))
                 {
-                    Debug.LogWarning($"{referencedUnityObjects.Array[i]} is part of a scene, LiveLink can't transfer scene objects. (Note: LiveConvertSceneView currently triggers this)");
-                    continue;
-                }
+                    if (GUIDHelper.IsBuiltinExtraResources(assetGUID))
+                    {
+                        var objectIdentifiers = ContentBuildInterface.GetPlayerObjectIdentifiersInAsset(assetGUID, ctx.selectedBuildTarget);
 
-                if (globalObjectId.assetGUID == new GUID())
+                        foreach (var objectIdentifier in objectIdentifiers)
+                        {
+                            var packedGUID = assetGUID;
+                            GUIDHelper.PackBuiltinExtraWithFileIdent(ref packedGUID, objectIdentifier.localIdentifierInFile);
+
+                            guids.Add(packedGUID);
+                        }
+                    }
+                    else if (GUIDHelper.IsBuiltinResources(assetGUID))
+                    {
+                        guids.Add(assetGUID);
+                    }
+                }
+                else
                 {
-                    //@TODO: How do we handle this
-                    Debug.LogWarning($"{referencedUnityObjects.Array[i]} has no valid GUID. LiveLink currently does not support built-in assets.");
-                    continue;
+                    guids.Add(assetGUID);
                 }
-
-                var runtimeGlobalObjectId =
-                    System.Runtime.CompilerServices.Unsafe.AsRef<RuntimeGlobalObjectId>(&globalObjectId);
-                runtimeGlobalObjIDs.Add(runtimeGlobalObjectId);
             }
 
-            return runtimeGlobalObjIDs;
+            return guids;
         }
 
-        static void WriteRefGuids(List<ReferencedUnityObjects> referencedUnityObjects, SceneSectionData[] sectionData, AssetImportContext ctx)
+        static void WriteAssetDependencyGUIDs(List<ReferencedUnityObjects> referencedUnityObjects, SceneSectionData[] sectionData, AssetImportContext ctx)
         {
             for (var index = 0; index < referencedUnityObjects.Count; index++)
             {
@@ -62,16 +76,16 @@ namespace Unity.Scenes.Editor
                 if (objRefs == null)
                     continue;
 
-                var refGuidsPath = ctx.GetResultPath($"{sectionIndex}.{EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesUnityObjectRefGuids)}");
-                var runtimeGlobalObjectIds = ReferencedUnityObjectsToRuntimeGlobalObjectIds(objRefs);
+                var path = ctx.GetResultPath($"{sectionIndex}.{EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesAssetDependencyGUIDs)}");
+                var assetDependencyGUIDs = ReferencedUnityObjectsToGUIDs(objRefs, ctx);
 
-                using (var refGuidWriter = new StreamBinaryWriter(refGuidsPath))
+                using (var writer = new StreamBinaryWriter(path))
                 {
-                    refGuidWriter.Write(runtimeGlobalObjectIds.Length);
-                    refGuidWriter.WriteArray(runtimeGlobalObjectIds.AsArray());
+                    writer.Write(assetDependencyGUIDs.Length);
+                    writer.WriteArray(assetDependencyGUIDs.AsArray());
                 }
 
-                runtimeGlobalObjectIds.Dispose();
+                assetDependencyGUIDs.Dispose();
             }
         }
 
@@ -80,6 +94,8 @@ namespace Unity.Scenes.Editor
             try
             {
                 ctx.DependsOnCustomDependency("EntityBinaryFileFormatVersion");
+                ctx.DependsOnCustomDependency("SceneMetaDataFileFormatVersion");
+                ctx.DependsOnSourceAsset(EntitiesCacheUtility.globalEntitySceneDependencyPath);
 
                 var sceneWithBuildConfiguration = SceneWithBuildConfigurationGUIDs.ReadFromFile(ctx.assetPath);
 
@@ -116,9 +132,30 @@ namespace Unity.Scenes.Editor
                     settings.AssetImportContext = ctx;
                     settings.FilterFlags = WorldSystemFilterFlags.HybridGameObjectConversion;
 
+                    WriteEntitySceneSettings writeEntitySettings = new WriteEntitySceneSettings();
+                    if (config != null && config.TryGetComponent<DotsRuntimeBuildProfile>(out var profile))
+                    {
+                        if (profile.UseNewPipeline)
+                        {
+                            if (config.TryGetComponent<DotsRuntimeRootAssembly>(out var rootAssembly))
+                            {
+                                EditorSceneManager.SetActiveScene(scene);
+                                writeEntitySettings.Codec = Codec.LZ4;
+                                writeEntitySettings.IsDotsRuntime = true;
+                                writeEntitySettings.BuildAssemblyCache = new BuildAssemblyCache()
+                                {
+                                    BaseAssemblies = rootAssembly.RootAssembly.asset,
+                                    PlatformName = profile.Target.UnityPlatformName
+                                };
+                                settings.FilterFlags = WorldSystemFilterFlags.DotsRuntimeGameObjectConversion;
+                            }
+                        }
+                    }
+
                     var sectionRefObjs = new List<ReferencedUnityObjects>();
-                    var sectionData = EditorEntityScenes.ConvertAndWriteEntityScene(scene, settings, sectionRefObjs);
-                    WriteRefGuids(sectionRefObjs, sectionData, ctx);
+                    var sectionData = EditorEntityScenes.ConvertAndWriteEntitySceneInternal(scene, settings, sectionRefObjs, writeEntitySettings);
+
+                    WriteAssetDependencyGUIDs(sectionRefObjs, sectionData, ctx);
                 }
                 finally
                 {

@@ -123,27 +123,21 @@ namespace Unity.Entities
                     var inputJob = BeforeOnUpdate();
                     JobHandle outputJob = new JobHandle();
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                     var oldExecutingSystem = ms_ExecutingSystem;
                     ms_ExecutingSystem = this;
-#endif
                     try
                     {
                         outputJob = OnUpdate(inputJob);
                     }
                     catch
                     {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                         ms_ExecutingSystem = oldExecutingSystem;
-#endif
 
                         AfterOnUpdate(outputJob, false);
                         throw;
                     }
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                     ms_ExecutingSystem = oldExecutingSystem;
-#endif
 
                     AfterOnUpdate(outputJob, true);
                 }
@@ -160,7 +154,7 @@ namespace Unity.Entities
             var state = CheckedState();
 
             base.OnBeforeCreateInternal(world);
-#if !NET_DOTS
+#if !UNITY_DOTSRUNTIME
             m_AlwaysSynchronizeSystem = GetType().GetCustomAttributes(typeof(AlwaysSynchronizeSystemAttribute), true).Length != 0;
 #else
             m_AlwaysSynchronizeSystem = false;

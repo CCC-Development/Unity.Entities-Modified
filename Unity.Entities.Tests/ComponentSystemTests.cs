@@ -79,7 +79,6 @@ namespace Unity.Entities.Tests
             Assert.IsTrue(system.Created);
         }
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
         class StackedTestSystem1 : TestSystem
         {
             public Type FoundTypeBefore;
@@ -114,7 +113,6 @@ namespace Unity.Entities.Tests
             Assert.AreEqual(typeof(StackedTestSystem1), system1.FoundTypeAfter);
         }
 
-#endif
 
 #if !UNITY_PORTABLE_TEST_RUNNER
         // TODO: IL2CPP_TEST_RUNNER can't handle Assert.That Throws
@@ -173,7 +171,7 @@ namespace Unity.Entities.Tests
             Assert.IsFalse(system.Created);
         }
 
-#if !UNITY_DOTSPLAYER
+#if !UNITY_DOTSRUNTIME
         [Test]
         public void CreateNonSystemThrows()
         {
@@ -373,51 +371,8 @@ namespace Unity.Entities.Tests
             World.DestroySystem(system);
             Assert.Throws<InvalidOperationException>(system.Update);
         }
-    }
 
-    class Issue101 : ECSTestsFixture
-    {
-        [BurstCompile(CompileSynchronously = true)]
-        struct Issue101Job : IJob
-        {
-            [WriteOnly] public NativeHashMap<ulong, byte>.ParallelWriter hashMap;
-            [WriteOnly] public NativeQueue<ulong>.ParallelWriter keys;
-            public int Index;
-
-            public void Execute()
-            {
-                byte hash = (byte)Index;
-                hashMap.TryAdd(hash, hash);
-                keys.Enqueue(hash);
-            }
-        }
-
-        [Ignore("Passed off to compute team")]
-        [Test]
-        public void TestIssue101()
-        {
-            var hashMap = new NativeHashMap<ulong, byte>(100, Allocator.TempJob);
-            var keys = new NativeQueue<ulong>(Allocator.TempJob);
-
-            try
-            {
-                var job = new Issue101Job()
-                {
-                    hashMap = hashMap.AsParallelWriter(),
-                    keys = keys.AsParallelWriter(),
-                    Index = 1,
-                };
-
-                job.Schedule(default(JobHandle)).Complete();
-            }
-            finally
-            {
-                keys.Dispose();
-                hashMap.Dispose();
-            }
-        }
-
-#if !UNITY_DOTSPLAYER
+#if !UNITY_DOTSRUNTIME
 
         public class NonPreservedTestSystem : ComponentSystem
         {

@@ -1,4 +1,5 @@
 using Unity.Assertions;
+using Unity.Collections;
 
 namespace Unity.Entities
 {
@@ -12,6 +13,7 @@ namespace Unity.Entities
         /// <summary>
         /// Prepares an empty <see cref="World"/> to load serialized entities.
         /// </summary>
+        [NotBurstCompatible]
         public void PrepareForDeserialize()
         {
             if (Debug.EntityCount != 0)

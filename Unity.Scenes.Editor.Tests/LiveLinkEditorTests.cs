@@ -12,7 +12,6 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
-using Debug = System.Diagnostics.Debug;
 using Object = UnityEngine.Object;
 
 namespace Unity.Scenes.Editor.Tests
@@ -41,6 +40,9 @@ namespace Unity.Scenes.Editor.Tests
         TestWithTempAssets m_Assets;
         [SerializeField]
         TestWithCustomDefaultGameObjectInjectionWorld m_DefaultWorld;
+
+        [SerializeField]
+        TestWithSubScenes m_SubSceneTest;
         [SerializeField]
         bool m_WasLiveLinkEnabled;
         [SerializeField]
@@ -68,14 +70,14 @@ namespace Unity.Scenes.Editor.Tests
             // Create a temporary folder for test assets
             m_Assets.SetUp();
             m_DefaultWorld.Setup();
+            m_SubSceneTest.Setup();
             m_WasLiveLinkEnabled = SubSceneInspectorUtility.LiveLinkEnabledInEditMode;
+            SubSceneInspectorUtility.LiveLinkEnabledInEditMode = true;
             m_EnterPlayModeOptions = EditorSettings.enterPlayModeOptions;
             m_UseEnterPlayerModeOptions = EditorSettings.enterPlayModeOptionsEnabled;
-            SubSceneInspectorUtility.LiveLinkEnabledInEditMode = true;
 
             m_TestTexture = AssetDatabase.LoadAssetAtPath<Texture>(AssetPath("TestTexture.asset"));
             m_TestMaterial = AssetDatabase.LoadAssetAtPath<Material>(AssetPath("TestMaterial.mat"));
-            AssetDatabase.SaveAssets();
         }
 
         [OneTimeTearDown]
@@ -84,11 +86,10 @@ namespace Unity.Scenes.Editor.Tests
             // Clean up all test assets
             m_Assets.TearDown();
             m_DefaultWorld.TearDown();
-            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
-            SceneWithBuildConfigurationGUIDs.ClearBuildSettingsCache();
-            SubSceneInspectorUtility.LiveLinkEnabledInEditMode = m_WasLiveLinkEnabled;
+            m_SubSceneTest.TearDown();
             EditorSettings.enterPlayModeOptions = m_EnterPlayModeOptions;
             EditorSettings.enterPlayModeOptionsEnabled = m_UseEnterPlayerModeOptions;
+            SubSceneInspectorUtility.LiveLinkEnabledInEditMode = m_WasLiveLinkEnabled;
         }
 
         static string AssetPath(string name) => "Packages/com.unity.entities/Unity.Scenes.Editor.Tests/Assets/" + name;
@@ -115,7 +116,8 @@ namespace Unity.Scenes.Editor.Tests
             if (usePlayMode)
                 return new EnterPlayMode();
             // ensure that the editor world is initialized
-            GetLiveLinkWorld(false);
+            var world = GetLiveLinkWorld(false);
+            world.Update();
             return null;
         }
 
@@ -196,13 +198,13 @@ namespace Unity.Scenes.Editor.Tests
                 SubSceneTestsHelper.CreateSubSceneInSceneFromObjects("TestSubScene1", true, scene, () =>
                 {
                     var go = new GameObject("TestGameObject1");
-                    go.AddComponent<TestPrefabComponentAuthoring>().IntValue = 1;
+                    go.AddComponent<TestComponentAuthoring>().IntValue = 1;
                     return new List<GameObject> { go };
                 });
                 SubSceneTestsHelper.CreateSubSceneInSceneFromObjects("TestSubScene2", true, scene, () =>
                 {
                     var go = new GameObject("TestGameObject2");
-                    go.AddComponent<TestPrefabComponentAuthoring>().IntValue = 2;
+                    go.AddComponent<TestComponentAuthoring>().IntValue = 2;
                     return new List<GameObject> { go };
                 });
             }
@@ -218,13 +220,13 @@ namespace Unity.Scenes.Editor.Tests
                 foreach (var subScene in subSceneObjects)
                     Assert.Contains(subScene, subScenes);
 
-                var componentQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+                var componentQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
 
                 Assert.AreEqual(2, componentQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                using (var components = componentQuery.ToComponentDataArray<TestPrefabComponent>(Allocator.TempJob))
+                using (var components = componentQuery.ToComponentDataArray<TestComponentAuthoring.UnmanagedTestComponent>(Allocator.TempJob))
                 {
-                    Assert.IsTrue(components.Contains(new TestPrefabComponent {IntValue = 1}), "Failed to find contents of subscene 1");
-                    Assert.IsTrue(components.Contains(new TestPrefabComponent {IntValue = 2}), "Failed to find contents of subscene 2");
+                    Assert.IsTrue(components.Contains(new TestComponentAuthoring.UnmanagedTestComponent {IntValue = 1}), "Failed to find contents of subscene 1");
+                    Assert.IsTrue(components.Contains(new TestComponentAuthoring.UnmanagedTestComponent {IntValue = 2}), "Failed to find contents of subscene 2");
                 }
             }
         }
@@ -243,7 +245,7 @@ namespace Unity.Scenes.Editor.Tests
                 SubSceneTestsHelper.CreateSubSceneInSceneFromObjects("TestSubScene1", true, scene, () =>
                 {
                     var go = new GameObject("TestGameObject");
-                    go.AddComponent<TestPrefabComponentAuthoring>().IntValue = 1;
+                    go.AddComponent<TestComponentAuthoring>().IntValue = 1;
                     return new List<GameObject> { go };
                 });
             }
@@ -251,18 +253,19 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
 
             {
-                var subScene = Object.FindObjectOfType<SubScene>();
                 var w = GetLiveLinkWorld(usePlayMode);
+
+                var subScene = Object.FindObjectOfType<SubScene>();
                 var subSceneQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<SubScene>());
                 Assert.Contains(subScene, subSceneQuery.ToComponentArray<SubScene>(), "SubScene was not loaded");
 
-                var componentQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+                var componentQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, componentQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(1, componentQuery.GetSingleton<TestPrefabComponent>().IntValue);
+                Assert.AreEqual(1, componentQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
 
                 Object.DestroyImmediate(subScene.gameObject);
 
-                yield return null;
+                w.Update();
 
                 Assert.IsTrue(subSceneQuery.IsEmptyIgnoreFilter, "SubScene was not unloaded");
                 Assert.AreEqual(0, componentQuery.CalculateEntityCount());
@@ -282,7 +285,7 @@ namespace Unity.Scenes.Editor.Tests
                 CreateSubSceneFromObjects("TestSubScene", true, () =>
                 {
                     var go = new GameObject("TestGameObject");
-                    go.AddComponent<TestPrefabComponentAuthoring>();
+                    go.AddComponent<TestComponentAuthoring>();
                     return new List<GameObject> { go };
                 });
             }
@@ -291,7 +294,8 @@ namespace Unity.Scenes.Editor.Tests
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
             }
         }
@@ -299,7 +303,7 @@ namespace Unity.Scenes.Editor.Tests
         [UnityTest]
         public IEnumerator LiveLinkCreatesEntitiesWhenObjectIsCreated_Edit() => LiveLinkCreatesEntitiesWhenObjectIsCreated(false);
 
-        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.RegisterCreatedObjectUndo isn't reliably picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered.")]
+        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.RegisterCreatedObjectUndo isn't reliably picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered. Fixed when DOTS-1202 lands")]
         public IEnumerator LiveLinkCreatesEntitiesWhenObjectIsCreated_Play([Values] EnteringPlayMode useDomainReload) => LiveLinkCreatesEntitiesWhenObjectIsCreated(true, useDomainReload);
 
         IEnumerator LiveLinkCreatesEntitiesWhenObjectIsCreated(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -312,31 +316,103 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
 
             {
-                var subScene = Object.FindObjectOfType<SubScene>();
                 var w = GetLiveLinkWorld(usePlayMode);
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var subScene = Object.FindObjectOfType<SubScene>();
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount());
 
                 SceneManager.SetActiveScene(subScene.EditingScene);
-                var go = new GameObject("CloneMe", typeof(TestPrefabComponentAuthoring));
+                var go = new GameObject("CloneMe", typeof(TestComponentAuthoring));
                 Undo.RegisterCreatedObjectUndo(go, "Create new object");
                 Assert.AreEqual(go.scene, subScene.EditingScene);
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Undo.PerformUndo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected an entity to be removed, undo failed");
                 Undo.PerformRedo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted, redo failed");
             }
         }
+
+        [UnityTest]
+        public IEnumerator DisableLiveLinkComponentWorks_Edit() => DisableLiveLinkComponentWorks(false);
+
+        [UnityTest, Explicit]
+        public IEnumerator DisableLiveLinkComponentWorks_Play([Values] EnteringPlayMode useDomainReload) => DisableLiveLinkComponentWorks(true, useDomainReload);
+
+        IEnumerator DisableLiveLinkComponentWorks(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
+        {
+            {
+                SetDomainReload(useDomainReload);
+                CreateSubSceneFromObjects("TestSubScene", true, () =>
+                {
+                    var go = new GameObject("TestGameObject");
+                    var authoringComponent = go.AddComponent<TestComponentAuthoring>();
+                    authoringComponent.IntValue = 42;
+                    return new List<GameObject> { go };
+                });
+            }
+
+            yield return GetEnterPlayMode(usePlayMode);
+
+            {
+                var w = GetLiveLinkWorld(usePlayMode);
+                var manager = w.EntityManager;
+
+                var sceneSystem = w.GetExistingSystem<SceneSystem>();
+                var subScene = Object.FindObjectOfType<SubScene>();
+
+                var sceneEntity = sceneSystem.GetSceneEntity(subScene.SceneGUID);
+                var sectionEntity = manager.GetBuffer<ResolvedSectionEntity>(sceneEntity)[0].SectionEntity;
+
+                Assert.AreNotEqual(Entity.Null, sceneEntity);
+
+                var sceneInstance = sceneSystem.LoadSceneAsync(subScene.SceneGUID, new SceneSystem.LoadParameters {Flags = SceneLoadFlags.NewInstance | SceneLoadFlags.BlockOnStreamIn | SceneLoadFlags.BlockOnImport});
+
+                w.Update();
+
+                var sectionInstance = manager.GetBuffer<ResolvedSectionEntity>(sceneInstance)[0].SectionEntity;
+
+                var sceneQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>(), ComponentType.ReadWrite<SceneTag>());
+                sceneQuery.SetSharedComponentFilter(new SceneTag {SceneEntity = sectionEntity});
+
+                var instanceQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>(), ComponentType.ReadWrite<SceneTag>());
+                instanceQuery.SetSharedComponentFilter(new SceneTag {SceneEntity = sectionInstance});
+
+                Assert.AreEqual(42, sceneQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
+                Assert.AreEqual(42, instanceQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
+
+                manager.AddComponent<DisableLiveLink>(sceneInstance);
+
+                var authoring = Object.FindObjectOfType<TestComponentAuthoring>();
+                var go = authoring.gameObject;
+
+
+                Undo.RecordObject(authoring, "Change component value");
+                authoring.IntValue = 117;
+                Undo.FlushUndoRecordObjects();
+
+                Undo.IncrementCurrentGroup();
+
+                w.Update();
+
+                Assert.AreEqual(117, sceneQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
+                Assert.AreEqual(42, instanceQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
+
+                w.EntityManager.DestroyEntity(sceneInstance);
+                w.Update();
+            }
+        }
+
 
         [UnityTest]
         public IEnumerator LiveLinkCreatesEntitiesWhenObjectMoves_Edit() => LiveLinkCreatesEntitiesWhenObjectMoves(false);
@@ -354,47 +430,50 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
 
             {
-                var subScene = Object.FindObjectOfType<SubScene>();
                 var w = GetLiveLinkWorld(usePlayMode);
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var subScene = Object.FindObjectOfType<SubScene>();
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount());
 
                 var go = new GameObject("TestGameObject");
-                go.AddComponent<TestPrefabComponentAuthoring>();
+                go.AddComponent<TestComponentAuthoring>();
                 Undo.MoveGameObjectToScene(go, subScene.EditingScene, "Test Move1");
 
                 // this doesn't work:
                 //    SceneManager.MoveGameObjectToScene(go, subScene.EditingScene);
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Undo.PerformUndo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected an entity to be removed, undo failed");
                 Undo.PerformRedo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted, redo failed");
             }
         }
 
         [UnityTest]
-        public IEnumerator LiveLinkDestroysEntitiesWhenObjectMoves_Edit() => LiveLinkCreatesEntitiesWhenObjectMoves(false);
-        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.MoveGameObjectToScene isn't reliably picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered.")]
+        public IEnumerator LiveLinkDestroysEntitiesWhenObjectMoves_Edit() => LiveLinkDestroysEntitiesWhenObjectMoves(false);
+        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.MoveGameObjectToScene isn't reliably picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered. Fixed when DOTS-1202 lands")]
         public IEnumerator LiveLinkDestroysEntitiesWhenObjectMoves_Play([Values] EnteringPlayMode useDomainReload) => LiveLinkDestroysEntitiesWhenObjectMoves(true, useDomainReload);
 
         IEnumerator LiveLinkDestroysEntitiesWhenObjectMoves(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
         {
+            var mainScene = CreateTmpScene();
+
             {
                 SetDomainReload(useDomainReload);
-                CreateSubSceneFromObjects("TestSubScene", true, () =>
+                SubSceneTestsHelper.CreateSubSceneInSceneFromObjects("TestSubScene", true, mainScene, () =>
                 {
                     var go = new GameObject("TestGameObject");
-                    go.AddComponent<TestPrefabComponentAuthoring>();
+                    go.AddComponent<TestComponentAuthoring>();
                     return new List<GameObject> { go };
                 });
             }
@@ -402,25 +481,25 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
 
             {
-                var subScene = Object.FindObjectOfType<SubScene>();
                 var w = GetLiveLinkWorld(usePlayMode);
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
 
-                var go = Object.FindObjectOfType<TestPrefabComponentAuthoring>().gameObject;
-                Undo.MoveGameObjectToScene(go, subScene.EditingScene, "Test Move1");
+                var go = Object.FindObjectOfType<TestComponentAuthoring>().gameObject;
+                Undo.MoveGameObjectToScene(go, mainScene, "Test Move1");
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected an entity to be removed");
                 Undo.PerformUndo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted, undo failed");
                 Undo.PerformRedo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected an entity to be removed, redo failed");
             }
@@ -429,7 +508,7 @@ namespace Unity.Scenes.Editor.Tests
         [UnityTest]
         public IEnumerator LiveLinkSupportsAddComponentAndUndo_Edit() => LiveLinkSupportsAddComponentAndUndo(false);
 
-        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.AddComponent isn't picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered.")]
+        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.AddComponent isn't picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered. Fixed when DOTS-1202 lands")]
         public IEnumerator LiveLinkSupportsAddComponentAndUndo_Play([Values] EnteringPlayMode useDomainReload) => LiveLinkSupportsAddComponentAndUndo(true, useDomainReload);
 
         IEnumerator LiveLinkSupportsAddComponentAndUndo(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -443,33 +522,34 @@ namespace Unity.Scenes.Editor.Tests
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
+
                 var subScene = Object.FindObjectOfType<SubScene>();
                 var go = new GameObject("TestGameObject");
                 Undo.MoveGameObjectToScene(go, subScene.EditingScene, "Test Move");
                 Undo.IncrementCurrentGroup();
 
-                yield return null;
+                w.Update();
 
-                Undo.AddComponent<TestPrefabComponentAuthoring>(go);
+                Undo.AddComponent<TestComponentAuthoring>(go);
                 Undo.IncrementCurrentGroup();
-                Assert.IsNotNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNotNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and gain a component");
 
                 Undo.PerformUndo();
-                Assert.IsNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and lose a component, undo add failed");
 
                 Undo.PerformRedo();
-                Assert.IsNotNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNotNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and gain a component, redo add failed");
             }
@@ -478,7 +558,7 @@ namespace Unity.Scenes.Editor.Tests
         [UnityTest]
         public IEnumerator LiveLinkSupportsRemoveComponentAndUndo_Edit() => LiveLinkSupportsRemoveComponentAndUndo(false);
 
-        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.DestroyObjectImmediate isn't picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered.")]
+        [UnityTest, Explicit, Ignore("Doesn't currently work, since Undo.DestroyObjectImmediate isn't picked up by Undo.postprocessModifications and Scenes are never marked dirty in play mode. A reconversion is never triggered. Fixed when DOTS-1202 lands")]
         public IEnumerator LiveLinkSupportsRemoveComponentAndUndo_Play([Values] EnteringPlayMode useDomainReload) => LiveLinkSupportsRemoveComponentAndUndo(true, useDomainReload);
 
         IEnumerator LiveLinkSupportsRemoveComponentAndUndo(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -492,37 +572,38 @@ namespace Unity.Scenes.Editor.Tests
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
+
                 var subScene = Object.FindObjectOfType<SubScene>();
                 var go = new GameObject("TestGameObject");
-                go.AddComponent<TestPrefabComponentAuthoring>();
+                go.AddComponent<TestComponentAuthoring>();
                 Undo.MoveGameObjectToScene(go, subScene.EditingScene, "Test Move");
                 Undo.IncrementCurrentGroup();
 
-                yield return null;
+                w.Update();
 
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted with a component");
 
-                Undo.DestroyObjectImmediate(go.GetComponent<TestPrefabComponentAuthoring>());
+                Undo.DestroyObjectImmediate(go.GetComponent<TestComponentAuthoring>());
                 Undo.IncrementCurrentGroup();
 
-                Assert.IsNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and lose a component");
 
                 Undo.PerformUndo();
-                Assert.IsNotNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNotNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and gain a component, undo remove failed");
 
                 Undo.PerformRedo();
-                Assert.IsNull(go.GetComponent<TestPrefabComponentAuthoring>());
+                Assert.IsNull(go.GetComponent<TestComponentAuthoring>());
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(0, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted and lose a component, redo remove failed");
             }
@@ -541,7 +622,7 @@ namespace Unity.Scenes.Editor.Tests
                 var subScene = CreateEmptySubScene("TestSubScene", true);
 
                 var go = new GameObject("TestGameObject");
-                var authoring = go.AddComponent<TestPrefabComponentAuthoring>();
+                var authoring = go.AddComponent<TestComponentAuthoring>();
                 authoring.IntValue = 15;
                 SceneManager.MoveGameObjectToScene(go, subScene.EditingScene);
             }
@@ -549,12 +630,13 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
             {
                 var w = GetLiveLinkWorld(usePlayMode);
-                var authoring = Object.FindObjectOfType<TestPrefabComponentAuthoring>();
+
+                var authoring = Object.FindObjectOfType<TestComponentAuthoring>();
                 Assert.AreEqual(authoring.IntValue, 15);
 
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(15, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue);
+                Assert.AreEqual(15, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
 
                 Undo.RecordObject(authoring, "Change component value");
                 authoring.IntValue = 2;
@@ -562,31 +644,31 @@ namespace Unity.Scenes.Editor.Tests
                 // it takes an extra frame to establish that something has changed when using RecordObject unless Flush is called
                 Undo.FlushUndoRecordObjects();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(2, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue, "Expected a component value to change");
+                Assert.AreEqual(2, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue, "Expected a component value to change");
 
                 Undo.PerformUndo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(15, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue, "Expected a component value to change, undo failed");
+                Assert.AreEqual(15, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue, "Expected a component value to change, undo failed");
 
                 Undo.PerformRedo();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(2, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue, "Expected a component value to change, redo failed");
+                Assert.AreEqual(2, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue, "Expected a component value to change, redo failed");
             }
         }
 
         [UnityTest]
         public IEnumerator LiveLinkDisablesEntityWhenGameObjectIsDisabled_Edit() => LiveLinkDisablesEntityWhenGameObjectIsDisabled(false);
 
-        [UnityTest, Explicit, Ignore("Doesn't currently work, since Scenes are never marked dirty in play mode. A reconversion is never triggered.")]
+        [UnityTest, Explicit, Ignore("Doesn't currently work, since Scenes are never marked dirty in play mode. A reconversion is never triggered. Fixed when DOTS-1202 lands")]
         public IEnumerator LiveLinkDisablesEntityWhenGameObjectIsDisabled_Play([Values] EnteringPlayMode useDomainReload) => LiveLinkDisablesEntityWhenGameObjectIsDisabled(true, useDomainReload);
 
         IEnumerator LiveLinkDisablesEntityWhenGameObjectIsDisabled(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -596,7 +678,7 @@ namespace Unity.Scenes.Editor.Tests
                 CreateSubSceneFromObjects("TestSubScene", true, () =>
                 {
                     var go = new GameObject("TestGameObject");
-                    go.AddComponent<TestPrefabComponentAuthoring>();
+                    go.AddComponent<TestComponentAuthoring>();
                     return new List<GameObject> { go };
                 });
             }
@@ -605,10 +687,11 @@ namespace Unity.Scenes.Editor.Tests
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
-                var queryWithoutDisabled = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var queryWithoutDisabled = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, queryWithoutDisabled.CalculateEntityCount(), "Expected a game object to be converted");
 
-                var go = Object.FindObjectOfType<TestPrefabComponentAuthoring>().gameObject;
+                var go = Object.FindObjectOfType<TestComponentAuthoring>().gameObject;
                 Undo.RecordObject(go, "DisableObject");
                 go.SetActive(false);
                 Undo.FlushUndoRecordObjects();
@@ -617,7 +700,7 @@ namespace Unity.Scenes.Editor.Tests
 
                 var queryWithDisabled = w.EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
-                    All = new[] { ComponentType.ReadWrite<TestPrefabComponent>(), ComponentType.ReadWrite<Disabled>() },
+                    All = new[] { ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>(), ComponentType.ReadWrite<Disabled>() },
                     Options = EntityQueryOptions.IncludeDisabled
                 });
                 Assert.AreEqual(1, queryWithDisabled.CalculateEntityCount(), "Expected a game object to be converted and disabled");
@@ -626,9 +709,9 @@ namespace Unity.Scenes.Editor.Tests
             }
         }
 
-        [UnityTest, Ignore("Requires refactoring to work in immutable package state, DOTS-1644")]
+        [UnityTest, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithTextureDependency_ChangeCausesReconversion_Edit() => LiveLink_WithTextureDependency_ChangeCausesReconversion(false);
-        [UnityTest, Explicit]
+        [UnityTest, Explicit, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithTextureDependency_ChangeCausesReconversion_Play([Values] EnteringPlayMode useDomainReload) => LiveLink_WithTextureDependency_ChangeCausesReconversion(true, useDomainReload);
 
         IEnumerator LiveLink_WithTextureDependency_ChangeCausesReconversion(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -640,10 +723,10 @@ namespace Unity.Scenes.Editor.Tests
             }
 
             yield return GetEnterPlayMode(usePlayMode);
-            yield return null;
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
+
                 var testQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ConversionDependencyData>());
                 Assert.AreEqual(1, testQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Assert.IsTrue(testQuery.GetSingleton<ConversionDependencyData>().HasTexture);
@@ -652,16 +735,16 @@ namespace Unity.Scenes.Editor.Tests
                 m_TestTexture.filterMode = m_TestTexture.filterMode == FilterMode.Bilinear ? FilterMode.Point : FilterMode.Bilinear;
                 AssetDatabase.SaveAssets();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Assert.AreEqual(m_TestTexture.filterMode, testQuery.GetSingleton<ConversionDependencyData>().TextureFilterMode, "Updated conversion shows the wrong value");
             }
         }
 
-        [UnityTest, Ignore("Requires refactoring to work in immutable package state, DOTS-1644")]
+        [UnityTest, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithMaterialDependency_ChangeCausesReconversion_Edit() => LiveLink_WithMaterialDependency_ChangeCausesReconversion(false);
-        [UnityTest, Explicit]
+        [UnityTest, Explicit, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithMaterialDependency_ChangeCausesReconversion_Play([Values] EnteringPlayMode useDomainReload) => LiveLink_WithMaterialDependency_ChangeCausesReconversion(true, useDomainReload);
 
         IEnumerator LiveLink_WithMaterialDependency_ChangeCausesReconversion(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -673,10 +756,10 @@ namespace Unity.Scenes.Editor.Tests
             }
 
             yield return GetEnterPlayMode(usePlayMode);
-            yield return null;
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
+
                 var testQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ConversionDependencyData>());
                 Assert.AreEqual(1, testQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Assert.AreEqual(m_TestMaterial.color, testQuery.GetSingleton<ConversionDependencyData>().MaterialColor);
@@ -684,16 +767,16 @@ namespace Unity.Scenes.Editor.Tests
                 m_TestMaterial.color = m_TestMaterial.color == Color.blue ? Color.red : Color.blue;
                 AssetDatabase.SaveAssets();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Assert.AreEqual(m_TestMaterial.color, testQuery.GetSingleton<ConversionDependencyData>().MaterialColor, "The game object with the asset dependency has not been reconverted");
             }
         }
 
-        [UnityTest, Ignore("Requires refactoring to work in immutable package state, DOTS-1644")]
+        [UnityTest, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithMultipleScenes_WithAssetDependencies_ChangeCausesReconversion_Edit() => LiveLink_WithMultipleScenes_WithAssetDependencies_ChangeCausesReconversion(false);
-        [UnityTest, Explicit]
+        [UnityTest, Explicit, EmbeddedPackageOnlyTest]
         public IEnumerator LiveLink_WithMultipleScenes_WithAssetDependencies_ChangeCausesReconversion_Play([Values] EnteringPlayMode useDomainReload) => LiveLink_WithMultipleScenes_WithAssetDependencies_ChangeCausesReconversion(true, useDomainReload);
 
         IEnumerator LiveLink_WithMultipleScenes_WithAssetDependencies_ChangeCausesReconversion(bool usePlayMode, EnteringPlayMode useDomainReload = EnteringPlayMode.WithoutDomainReload)
@@ -706,10 +789,10 @@ namespace Unity.Scenes.Editor.Tests
             }
 
             yield return GetEnterPlayMode(usePlayMode);
-            yield return null;
 
             {
                 var w = GetLiveLinkWorld(usePlayMode);
+
                 var testQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ConversionDependencyData>());
                 Assert.AreEqual(2, testQuery.CalculateEntityCount(), "Expected a game object to be converted");
                 Entity textureEntity, materialEntity;
@@ -733,14 +816,14 @@ namespace Unity.Scenes.Editor.Tests
                 m_TestMaterial.color = m_TestMaterial.color == Color.blue ? Color.red : Color.blue;
                 AssetDatabase.SaveAssets();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(m_TestMaterial.color, GetData(materialEntity).MaterialColor, "The game object with the material asset dependency has not been reconverted");
 
                 m_TestTexture.filterMode = m_TestTexture.filterMode == FilterMode.Bilinear ? FilterMode.Point : FilterMode.Bilinear;
                 AssetDatabase.SaveAssets();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(m_TestTexture.filterMode, GetData(textureEntity).TextureFilterMode, "The game object with the texture asset dependency has not been reconverted.");
 
@@ -761,7 +844,7 @@ namespace Unity.Scenes.Editor.Tests
                 CreateSubSceneFromObjects("TestSubScene", true, () =>
                 {
                     var go = new GameObject("TestGameObject");
-                    var authoring = go.AddComponent<TestPrefabComponentAuthoring>();
+                    var authoring = go.AddComponent<TestComponentAuthoring>();
                     authoring.Material = m_TestMaterial;
                     authoring.IntValue = 15;
 
@@ -772,14 +855,15 @@ namespace Unity.Scenes.Editor.Tests
             yield return GetEnterPlayMode(usePlayMode);
 
             {
-                var authoring = Object.FindObjectOfType<TestPrefabComponentAuthoring>();
+                var authoring = Object.FindObjectOfType<TestComponentAuthoring>();
                 Assert.AreEqual(authoring.IntValue, 15);
                 Assert.AreEqual(authoring.Material, m_TestMaterial);
 
                 var w = GetLiveLinkWorld(usePlayMode);
-                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestPrefabComponent>());
+
+                var testTagQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TestComponentAuthoring.UnmanagedTestComponent>());
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(15, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue);
+                Assert.AreEqual(15, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue);
 
                 var testSceneQuery = w.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<SceneReference>());
                 Assert.AreEqual(1, testSceneQuery.CalculateEntityCount());
@@ -790,20 +874,20 @@ namespace Unity.Scenes.Editor.Tests
                 // it takes an extra frame to establish that something has changed when using RecordObject unless Flush is called
                 Undo.FlushUndoRecordObjects();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted");
-                Assert.AreEqual(2, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue, "Expected a component value to change");
+                Assert.AreEqual(2, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue, "Expected a component value to change");
 
                 var subScene = Object.FindObjectOfType<SubScene>();
                 Assert.IsNotNull(subScene);
 
                 subScene.gameObject.SetActive(false);
-                yield return null;
+                w.Update();
                 Assert.AreEqual(0, testSceneQuery.CalculateEntityCount(), "Expected no Scene Entities after disabling the SubScene MonoBehaviour");
 
                 subScene.gameObject.SetActive(true);
-                yield return null;
+                w.Update();
                 Assert.AreEqual(1, testSceneQuery.CalculateEntityCount(), "Expected Scene Entity after enabling the SubScene MonoBehaviour");
 
                 // Do conversion again
@@ -813,10 +897,10 @@ namespace Unity.Scenes.Editor.Tests
                 // it takes an extra frame to establish that something has changed when using RecordObject unless Flush is called
                 Undo.FlushUndoRecordObjects();
 
-                yield return null;
+                w.Update();
 
                 Assert.AreEqual(1, testTagQuery.CalculateEntityCount(), "Expected a game object to be converted after unloading and loading subscene");
-                Assert.AreEqual(42, testTagQuery.GetSingleton<TestPrefabComponent>().IntValue, "Expected a component value to change after unloading and loading subscene");
+                Assert.AreEqual(42, testTagQuery.GetSingleton<TestComponentAuthoring.UnmanagedTestComponent>().IntValue, "Expected a component value to change after unloading and loading subscene");
             }
         }
     }

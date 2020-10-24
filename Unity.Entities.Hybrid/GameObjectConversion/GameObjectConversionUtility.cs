@@ -44,7 +44,7 @@ namespace Unity.Entities
 
                 var systemTypes = settings.Systems ?? DefaultWorldInitialization.GetAllSystems(settings.FilterFlags);
 
-                var includeExport = settings.GetType() != typeof(GameObjectConversionSettings);
+                var includeExport = settings.SupportsExporting;
                 AddConversionSystems(gameObjectWorld, systemTypes.Concat(settings.ExtraSystems), includeExport);
 
                 settings.ConversionWorldCreated?.Invoke(gameObjectWorld);
@@ -314,11 +314,11 @@ namespace Unity.Entities
                 }
             }
 
-            declareConvert.SortSystemUpdateList();
-            earlyConvert.SortSystemUpdateList();
-            convert.SortSystemUpdateList();
-            lateConvert.SortSystemUpdateList();
-            export?.SortSystemUpdateList();
+            declareConvert.SortSystems();
+            earlyConvert.SortSystems();
+            convert.SortSystems();
+            lateConvert.SortSystems();
+            export?.SortSystems();
         }
 
         static void AddSystemAndLogException(World world, ComponentSystemGroup group, Type type)

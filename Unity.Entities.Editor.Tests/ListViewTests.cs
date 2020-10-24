@@ -3,6 +3,7 @@ using System.Linq;
 using NUnit.Framework;
 using Unity.Entities.Tests;
 using UnityEditor.IMGUI.Controls;
+using UnityEngine.LowLevel;
 
 namespace Unity.Entities.Editor.Tests
 {
@@ -33,12 +34,13 @@ namespace Unity.Entities.Editor.Tests
         {
             base.Setup();
 
-            ScriptBehaviourUpdateOrder.UpdatePlayerLoop(World.DefaultGameObjectInjectionWorld);
-
             World2 = new World("Test World 2");
             var emptySys = World2.GetOrCreateSystem<EmptySystem>();
-            World.GetOrCreateSystem<SimulationSystemGroup>().AddSystemToUpdateList(emptySys);
-            World.GetOrCreateSystem<SimulationSystemGroup>().SortSystemUpdateList();
+            var simGroup = World.GetOrCreateSystem<SimulationSystemGroup>();
+            simGroup.AddSystemToUpdateList(emptySys);
+            simGroup.SortSystems();
+
+            ScriptBehaviourUpdateOrder.AddWorldToCurrentPlayerLoop(World.DefaultGameObjectInjectionWorld);
         }
 
         public override void TearDown()
@@ -47,8 +49,6 @@ namespace Unity.Entities.Editor.Tests
             World2 = null;
 
             base.TearDown();
-
-            ScriptBehaviourUpdateOrder.UpdatePlayerLoop(m_PreviousWorld);
         }
 
         [Test]

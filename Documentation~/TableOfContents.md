@@ -13,6 +13,7 @@
     * [Creating systems](ecs_creating_systems.md)
         * [Using Entities.ForEach](ecs_entities_foreach.md)
         * [Using Job.WithCode](ecs_job_withcode.md)
+        * [Using IJobEntityBatch](ecs_ijobentitybatch.md)
         * [Using IJobChunk](chunk_iteration_job.md)
         * [Manual iteration](manual_iteration.md)
     * [System update order](system_update_order.md)
@@ -26,4 +27,4 @@
 * [Creating gameplay](gp_overview.md)
   * [Transforms](transform_system.md)
   * [Rendering](gp_rendering.md)
-  * [Common patterns](gp_common_patterns)
+  * [Common patterns](gp_common_patterns.md)

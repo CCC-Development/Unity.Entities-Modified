@@ -4,7 +4,7 @@ uid: ecs-component-data
 
 # General purpose components
 
-`ComponentData` in Unity (also known as a component in standard ECS terms) is a struct that contains only the instance data for an [entity](entities.md). `ComponentData` should not contain methods beyond utility functions to access the data in the struct. You should implement all of your game logic and behavior in systems. To put this in terms of the object-oriented Unity system, this is somewhat similar to a Component class, but one that **only contains variables**.
+`ComponentData` in Unity (also known as a component in standard ECS terms) is a struct that contains only the instance data for an [entity](ecs_entities.md). `ComponentData` should not contain methods beyond utility functions to access the data in the struct. You should implement all of your game logic and behavior in systems. To put this in terms of the object-oriented Unity system, this is somewhat similar to a Component class, but one that **only contains variables**.
 
 The Unity ECS API provides an interface called [IComponentData](xref:Unity.Entities.IComponentData) that you can implement in your code to declare a general-purpose component type.
 
@@ -29,7 +29,7 @@ It is helpful to use a managed `IComponentData` (that is, `IComponentData` decla
 
 These components are used the same way as value type `IComponentData`. However, ECS handles them internally in a much different (and slower) way. If you don't need managed component support, define `UNITY_DISABLE_MANAGED_COMPONENTS` in your application's __Player Settings__ (menu: __Edit &gt; Project Settings &gt; Player &gt; Scripting Define Symbols__) to prevent accidental usage.
 
-Because managed `IComponentData` is a managed type, it has the following performance drawbacks compared to valuetype `IComponentData`:
+Because managed `IComponentData` is a managed type, it has the following performance drawbacks compared to value-type `IComponentData`:
 * It cannot be used with the Burst Compiler
 * It cannot be used in job structs 
 * It cannot use [Chunk memory](chunk_iteration.md) 

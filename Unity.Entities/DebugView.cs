@@ -22,7 +22,13 @@ namespace Unity.Entities
             {
                 var result = new ArchetypeChunk[m_ChunkData.Count];
                 for (var i = 0; i < result.Length; ++i)
-                    result[i] = *(ArchetypeChunk*)&m_ChunkData.p[i];
+                    result[i] = new ArchetypeChunk
+                    {
+                        m_Chunk = m_ChunkData[i],
+                        m_BatchStartEntityIndex = 0,
+                        m_BatchEntityCount = 0,
+                        m_EntityComponentStore = null
+                    };
                 return result;
             }
         }
@@ -148,15 +154,17 @@ namespace Unity.Entities
             }
         }
 
+
         unsafe public List<DebugViewUtility.Components> Entities
         {
             get
             {
-                var entities = m_target.GetAllEntities();
+                var entities = m_target.GetAllEntitiesImmediate();
                 entities.Sort(new Comparer());
                 using (entities)
                 {
                     var result = new List<DebugViewUtility.Components>();
+
                     for (var i = 0; i < entities.Length; ++i)
                         result.Add(DebugViewUtility.GetComponents(m_target, entities[i]));
                     return result;
@@ -303,7 +311,7 @@ namespace Unity.Entities
                 List<ChunkPtr> result = new List<ChunkPtr>();
                 var archetype = m_EntityArchetype.Archetype;
                 for (var i = 0; i < archetype->Chunks.Count; ++i)
-                    result.Add(new ChunkPtr {m_Chunk = archetype->Chunks.p[i]});
+                    result.Add(new ChunkPtr {m_Chunk = archetype->Chunks[i]});
                 return result;
             }
         }

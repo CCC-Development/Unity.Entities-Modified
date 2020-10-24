@@ -1,9 +1,6 @@
-using Unity.Entities.UniversalDelegates;
-
 namespace Doc.CodeSamples.Tests
 {
     using Unity.Entities;
-    using Unity.Jobs;
     using Unity.Transforms;
     using Unity.Collections;
     using System.Collections.Generic;
@@ -144,7 +141,7 @@ namespace Doc.CodeSamples.Tests
                 //Not burst compatible:
                 Debug.Log("Final sum is " + result);
             })
-                .WithDeallocateOnJobCompletion(intermediateSums)
+                .WithDisposeOnCompletion(intermediateSums)
                 .WithoutBurst()
                 .WithName("FinalSum")
                 .Schedule(); // Execute on a single, background thread
@@ -205,7 +202,7 @@ namespace Doc.CodeSamples.Tests
                 //Use dataSquared array...
                 var v = dataSquared[dataSquared.Length - 1];
             })
-                .WithDeallocateOnJobCompletion(dataSquared)
+                .WithDisposeOnCompletion(dataSquared)
                 .Schedule();
         }
 
@@ -291,8 +288,8 @@ namespace Doc.CodeSamples.Tests
 
         protected override void OnUpdate()
         {
-            EntityCommandBuffer.Concurrent commandBuffer
-                = commandBufferSystem.CreateCommandBuffer().ToConcurrent();
+            EntityCommandBuffer.ParallelWriter commandBuffer
+                = commandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             //.. The rest of the job system code
         }
@@ -318,6 +315,67 @@ namespace Doc.CodeSamples.Tests
                 .Run();
         }
     }
+}
+
+
+
+namespace Doc.CodeSamples.Tests
+{
+    using Unity.Entities;
+
+    struct Data1 : IComponentData{}
+    struct Data2 : IComponentData{}
+    struct Data3 : IComponentData{}
+    struct Data4 : IComponentData{}
+    struct Data5 : IComponentData{}
+    struct Data6 : IComponentData{}
+    struct Data7 : IComponentData{}
+    struct Data8 : IComponentData{}
+    struct Data9 : IComponentData{}
+    struct Data10 : IComponentData{}
+    struct Data11 : IComponentData{}
+    
+    #region lambda-params-many
+
+    static class BringYourOwnDelegate
+    {
+        // Declare the delegate that takes 12 parameters. T0 is used for the Entity argument
+        [Unity.Entities.CodeGeneratedJobForEach.EntitiesForEachCompatible]
+        public delegate void CustomForEachDelegate<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>
+            (T0 t0, in T1 t1, in T2 t2, in T3 t3, in T4 t4, in T5 t5,
+             in T6 t6, in T7 t7, in T8 t8, in T9 t9, in T10 t10, in T11 t11);
+
+        // Declare the function overload
+        public static TDescription ForEach<TDescription, T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>
+            (this TDescription description, CustomForEachDelegate<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11> codeToRun)
+            where TDescription : struct, Unity.Entities.CodeGeneratedJobForEach.ISupportForEachWithUniversalDelegate =>
+            LambdaForEachDescriptionConstructionMethods.ThrowCodeGenException<TDescription>();
+    }
+
+    // A system that uses the custom delegate and overload
+    public class MayParamsSystem : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            Entities.ForEach(
+                    (Entity entity0,
+                        in Data1 d1,
+                        in Data2 d2,
+                        in Data3 d3,
+                        in Data4 d4,
+                        in Data5 d5,
+                        in Data6 d6,
+                        in Data7 d7,
+                        in Data8 d8,
+                        in Data9 d9,
+                        in Data10 d10,
+                        in Data11 d11
+                        ) => {/* .. */})
+                .Run();
+        }
+    }
+    
+    #endregion
 }
 
 namespace Doc.CodeSamples.Tests
@@ -352,14 +410,14 @@ namespace Doc.CodeSamples.Tests
 
         protected override void OnUpdate()
         {
-            EntityCommandBuffer.Concurrent commandBufferCreate
-                = commandBufferSystem.CreateCommandBuffer().ToConcurrent();
-            EntityCommandBuffer.Concurrent commandBufferCull
-                = commandBufferSystem.CreateCommandBuffer().ToConcurrent();
+            EntityCommandBuffer.ParallelWriter commandBufferCreate
+                = commandBufferSystem.CreateCommandBuffer().AsParallelWriter();
+            EntityCommandBuffer.ParallelWriter commandBufferCull
+                = commandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             float dt = Time.DeltaTime;
-            Random rnd = new Random();
-            rnd.InitState((uint)(dt * 100000));
+            Random rnd = new Random((uint)(dt * 100000));
+            //rnd.InitState((uint)(dt * 100000));
 
 
             JobHandle spawnJobHandle = Entities

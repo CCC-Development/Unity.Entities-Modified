@@ -66,7 +66,7 @@ namespace Unity.Entities.Tests
         }
     }
 
-#if !UNITY_DOTSPLAYER_IL2CPP
+#if !UNITY_PORTABLE_TEST_RUNNER
     internal class YAMLSerializationHelpers
     {
         /// <summary>
@@ -119,6 +119,17 @@ namespace Unity.Entities.Tests
             public int value;
         }
 
+        public struct EcsTestSharedCompBlobAssetRef : ISharedComponentData
+        {
+            public BlobAssetReference<int> value;
+        }
+
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
+        public class EcsTestManagedDataBlobAssetRef : IComponentData
+        {
+            public BlobAssetReference<int> value;
+        }
+#endif
 
         [Test]
         public void SerializeIntoExistingWorldThrows()
@@ -201,7 +212,7 @@ namespace Unity.Entities.Tests
                 Assert.AreEqual(4, chunks.Length);
                 everythingGroup.Dispose();
 
-                var entityType = entityManager.GetArchetypeChunkEntityType();
+                var entityType = entityManager.GetEntityTypeHandle();
                 Assert.AreEqual(1, chunks[0].GetNativeArray(entityType).Length);
                 Assert.AreEqual(1, chunks[1].GetNativeArray(entityType).Length);
                 Assert.AreEqual(1, chunks[2].GetNativeArray(entityType).Length);
@@ -535,7 +546,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // Unity.Properties support required
+        [DotsRuntimeFixme] // Unity.Properties support required
         public unsafe void SerializeEntitiesWorksWithBlobAssetReferences()
         {
             var archetype1 = m_Manager.CreateArchetype(typeof(EcsTestSharedComp), typeof(EcsTestData));
@@ -918,7 +929,7 @@ namespace Unity.Entities.Tests
                 reader.Dispose();
             }
 
-#if !NET_DOTS // If memory has been unmapped this can throw exceptions other than InvalidOperation
+#if !UNITY_DOTSRUNTIME // If memory has been unmapped this can throw exceptions other than InvalidOperation
             float f = 1.0f;
             Assert.Throws<InvalidOperationException>(() => f = arrayComponent.array.Value[0]);
 #endif
@@ -930,7 +941,7 @@ namespace Unity.Entities.Tests
             byte* m_Data;
         }
 
-#if !NET_DOTS // We don't have reflection to validate if a type is serializable in NET_DOTS
+#if !UNITY_DOTSRUNTIME // We don't have reflection to validate if a type is serializable in NET_DOTS
         [Test]
         public void SerializeComponentWithPointerField()
         {
@@ -1073,7 +1084,7 @@ namespace Unity.Entities.Tests
             deserializedWorld.Dispose();
         }
 
-#if !UNITY_DISABLE_MANAGED_COMPONENTS && !NET_DOTS
+#if !UNITY_DISABLE_MANAGED_COMPONENTS && !UNITY_DOTSRUNTIME
         public class ManagedComponent : IComponentData
         {
             public string String;
@@ -1086,7 +1097,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // DOTS Runtime Managed Component Serialization
+        [DotsRuntimeFixme] // DOTS Runtime Managed Component Serialization
         public void SerializeEntities_HandlesNullManagedComponents()
         {
             var e = m_Manager.CreateEntity(typeof(ManagedComponent));
@@ -1106,7 +1117,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // DOTS Runtime Managed Component Serialization
+        [DotsRuntimeFixme] // DOTS Runtime Managed Component Serialization
         public void SerializeEntities_RemapsEntitiesInManagedComponents()
         {
             int numberOfEntitiesPerManager = 10000;
@@ -1165,7 +1176,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // DOTS Runtime Managed Component Serialization
+        [DotsRuntimeFixme] // DOTS Runtime Managed Component Serialization
         public void SerializeEntities_ManagedComponents()
         {
             int expectedEntityCount = 1000;
@@ -1432,7 +1443,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // DOTS Runtime Managed Component Serialization
+        [DotsRuntimeFixme] // DOTS Runtime Managed Component Serialization
         public void SerializeEntitiesManagedComponentWithCustomClass_ManagedComponents()
         {
             int expectedEntityCount = 100;
@@ -1574,7 +1585,7 @@ namespace Unity.Entities.Tests
             }
         }
 
-#if !NET_DOTS
+#if UNITY_EDITOR
         [Test]
         public void WorldYamlSerializationTest()
         {
@@ -1648,7 +1659,128 @@ namespace Unity.Entities.Tests
             }
         }
 
-#endif // !NET_DOTS
+#endif // !UNITY_DOTSRUNTIME
+#endif // !UNITY_DISABLE_MANAGED_COMPONENTS
+
+        [Test]
+        [DotsRuntimeFixme] // Unity.Properties support required
+        public void SerializeEntities_WithBlobAssetReferencesInSharedComponents()
+        {
+            Entity a = m_Manager.CreateEntity();
+            m_Manager.AddSharedComponentData(a, new EcsTestSharedCompBlobAssetRef
+            {
+                value = BlobAssetReference<int>.Create(123)
+            });
+
+            Entity b = m_Manager.CreateEntity();
+            m_Manager.AddSharedComponentData(b, new EcsTestSharedCompBlobAssetRef
+            {
+                value = BlobAssetReference<int>.Create(123)
+            });
+
+            var writer = new TestBinaryWriter();
+            SerializeUtility.SerializeWorld(m_Manager, writer);
+
+            m_Manager.DestroyEntity(m_Manager.UniversalQuery);
+
+            var deserializedWorld = new World("Deserialized World");
+            var entityManager = deserializedWorld.EntityManager;
+
+            using (var reader = new TestBinaryReader(writer))
+            {
+                SerializeUtility.DeserializeWorld(entityManager.BeginExclusiveEntityTransaction(), reader);
+                entityManager.EndExclusiveEntityTransaction();
+            }
+
+            entityManager.Debug.CheckInternalConsistency();
+
+            using (var query = entityManager.CreateEntityQuery(new EntityQueryDesc
+            {
+                All = new[] {ComponentType.ReadWrite<EcsTestSharedCompBlobAssetRef>()}
+            }))
+            {
+                Assert.AreEqual(2, query.CalculateChunkCount());
+            }
+        }
+
+        [Test]
+        [DotsRuntimeFixme] // Unity.Properties support required
+        public void SerializeEntities_WithEntityReferencesInSharedComponents_ThrowsException()
+        {
+            {
+                var archetype = m_Manager.CreateArchetype(ComponentType.ReadWrite<EcsTestData>());
+                var entities = m_Manager.CreateEntity(archetype, 20, Allocator.Temp);
+
+                Entity a = m_Manager.CreateEntity();
+                m_Manager.SetComponentData(entities[12], new EcsTestData(12345));
+                m_Manager.AddSharedComponentData(a, new EcsTestSharedCompEntity(entities[12]));
+
+                Entity b = m_Manager.CreateEntity();
+                m_Manager.SetComponentData(entities[17], new EcsTestData(23456));
+                m_Manager.AddSharedComponentData(b, new EcsTestSharedCompEntity(entities[17]));
+
+                entities[12] = Entity.Null;
+                entities[17] = Entity.Null;
+                m_Manager.DestroyEntity(entities);
+            }
+
+            using (var writer = new TestBinaryWriter())
+            {
+                Assert.Throws<ArgumentException>(() => SerializeUtility.SerializeWorld(m_Manager, writer));
+            }
+        }
+
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
+        [Test]
+        [DotsRuntimeFixme] // Unity.Properties support required
+        public void SerializeEntities_WithBlobAssetReferencesInManagedComponents()
+        {
+            {
+                Entity a = m_Manager.CreateEntity();
+                m_Manager.AddComponentData(a, new EcsTestManagedDataBlobAssetRef
+                {
+                    value = BlobAssetReference<int>.Create(123)
+                });
+
+                Entity b = m_Manager.CreateEntity();
+                m_Manager.AddComponentData(b, new EcsTestManagedDataBlobAssetRef
+                {
+                    value = BlobAssetReference<int>.Create(234)
+                });
+            }
+
+            var writer = new TestBinaryWriter();
+            SerializeUtility.SerializeWorld(m_Manager, writer);
+
+            m_Manager.DestroyEntity(m_Manager.UniversalQuery);
+
+            var deserializedWorld = new World("Deserialized World");
+            var entityManager = deserializedWorld.EntityManager;
+
+            using (var reader = new TestBinaryReader(writer))
+            {
+                SerializeUtility.DeserializeWorld(entityManager.BeginExclusiveEntityTransaction(), reader);
+                entityManager.EndExclusiveEntityTransaction();
+            }
+
+            entityManager.Debug.CheckInternalConsistency();
+
+            using (var query = entityManager.CreateEntityQuery(new EntityQueryDesc
+            {
+                All = new[] {ComponentType.ReadWrite<EcsTestManagedDataBlobAssetRef>()}
+            }))
+            {
+                var entities = query.ToEntityArray(Allocator.TempJob);
+                Assert.AreEqual(2, entities.Length);
+
+                var a = entityManager.GetComponentData<EcsTestManagedDataBlobAssetRef>(entities[0]).value.Value;
+                var b = entityManager.GetComponentData<EcsTestManagedDataBlobAssetRef>(entities[1]).value.Value;
+
+                Assert.AreEqual(123 + 234, a + b);
+
+                entities.Dispose();
+            }
+        }
 #endif // !UNITY_DISABLE_MANAGED_COMPONENTS
     }
 }

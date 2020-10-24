@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Unity.Entities.Tests;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.LowLevel;
 
 namespace Unity.Entities.Editor.Tests
 {
@@ -48,12 +49,12 @@ namespace Unity.Entities.Editor.Tests
             m_System = World.GetOrCreateSystem<SingleGroupSystem>();
             World.GetOrCreateSystem<SimulationSystemGroup>().AddSystemToUpdateList(m_System);
 
-            ScriptBehaviourUpdateOrder.UpdatePlayerLoop(World);
+            ScriptBehaviourUpdateOrder.AddWorldToCurrentPlayerLoop(World);
 
             World2 = new World(World2Name);
             var emptySys = World2.GetOrCreateSystem<EmptySystem>();
             World.GetOrCreateSystem<SimulationSystemGroup>().AddSystemToUpdateList(emptySys);
-            World.GetOrCreateSystem<SimulationSystemGroup>().SortSystemUpdateList();
+            World.GetOrCreateSystem<SimulationSystemGroup>().SortSystems();
 
             entityQuery = m_System.EntityQueries[0];
 
@@ -71,8 +72,6 @@ namespace Unity.Entities.Editor.Tests
             }
 
             base.TearDown();
-
-            ScriptBehaviourUpdateOrder.UpdatePlayerLoop(World.DefaultGameObjectInjectionWorld);
         }
 
         [Test]

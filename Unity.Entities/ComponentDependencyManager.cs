@@ -1,9 +1,11 @@
 using System;
+using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Profiling;
 using UnityEngine.Profiling;
 
 namespace Unity.Entities
@@ -48,6 +50,8 @@ namespace Unity.Entities
 
         JobHandle              m_ExclusiveTransactionDependency;
         bool                   _IsInTransaction;
+
+        private ProfilerMarker m_Marker;
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         public ComponentSafetyHandles Safety;
@@ -101,23 +105,25 @@ namespace Unity.Entities
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             Safety.OnCreate();
 #endif
+            m_Marker = new ProfilerMarker("CompleteAllJobs");
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        private static void AssertCompleteSyncPoint()
+        {
+            if (JobsUtility.IsExecutingJob)
+            {
+                throw new InvalidOperationException(
+                    "Jobs accessing the entity manager must issue a complete sync point");
+            }
         }
 
         public void CompleteAllJobsAndInvalidateArrays()
         {
             if (m_DependencyHandlesCount != 0)
             {
-#if NET_DOTS
-                if (JobsUtility.IsExecutingJob())
-#else
-                if (JobsUtility.IsExecutingJob)
-#endif
-                {
-                    throw new InvalidOperationException(
-                        "Jobs accessing the entity manager must issue a complete sync point");
-                }
-
-                Profiler.BeginSample("CompleteAllJobs");
+                AssertCompleteSyncPoint();
+                m_Marker.Begin();
                 for (int t = 0; t < m_DependencyHandlesCount; ++t)
                 {
                     m_DependencyHandles[t].WriteFence.Complete();
@@ -129,7 +135,7 @@ namespace Unity.Entities
                     m_DependencyHandles[t].NumReadFences = 0;
                 }
                 ClearDependencies();
-                Profiler.EndSample();
+                m_Marker.End();
             }
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -473,7 +479,7 @@ namespace Unity.Entities
     // Shared code of the above two different implementation
     partial struct ComponentDependencyManager
     {
-        public bool IsInTransaction => _IsInTransaction;
+        internal bool IsInTransaction => _IsInTransaction;
 
         public JobHandle ExclusiveTransactionDependency
         {
@@ -481,13 +487,13 @@ namespace Unity.Entities
             set
             {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if (!IsInTransaction)
+                if (!_IsInTransaction)
                     throw new InvalidOperationException(
-                        "EntityManager.TransactionDependency can only after EntityManager.BeginExclusiveEntityTransaction has been called.");
+                        "EntityManager.ExclusiveEntityTransactionDependency can only be used after EntityManager.BeginExclusiveEntityTransaction has been called.");
 
                 if (!JobHandle.CheckFenceIsDependencyOrDidSyncFence(m_ExclusiveTransactionDependency, value))
                     throw new InvalidOperationException(
-                        "EntityManager.TransactionDependency must depend on the Entity Transaction job.");
+                        "EntityManager.ExclusiveEntityTransactionDependency must depend on the Entity Transaction job.");
 #endif
                 m_ExclusiveTransactionDependency = value;
             }

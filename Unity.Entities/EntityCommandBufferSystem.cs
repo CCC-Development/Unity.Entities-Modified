@@ -4,6 +4,10 @@ using System.Text;
 using Unity.Collections;
 using Unity.Jobs;
 
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    using UnityEngine.Profiling;
+#endif
+
 namespace Unity.Entities
 {
     /// <summary>
@@ -20,7 +24,7 @@ namespace Unity.Entities
     ///
     /// If you write to a command buffer from a Job that runs in
     /// parallel (and this includes both <see cref="IJobForEach{T0}"/> and <see cref="IJobChunk"/>), you must use the
-    /// concurrent version of the command buffer (<seealso cref="EntityCommandBuffer.ToConcurrent"/>).
+    /// concurrent version of the command buffer (<seealso cref="EntityCommandBuffer.AsParallelWriter"/>).
     ///
     /// Executing the commands in an EntityCommandBuffer invokes the corresponding functions of the
     /// <see cref="EntityManager"/>. Any structural change, such as adding or removing entities, adding or removing
@@ -70,15 +74,13 @@ namespace Unity.Entities
         ///
         /// If you write to a command buffer from a parallel Job, such as <see cref="IJobForEach{T0}"/> or
         /// <see cref="IJobChunk"/>, you must use the concurrent version of the command buffer, provided by
-        /// <see cref="EntityCommandBuffer.Concurrent"/>.
+        /// <see cref="EntityCommandBuffer.ParallelWriter"/>.
         /// </remarks>
         /// <returns>A command buffer that will be executed by this system.</returns>
         public EntityCommandBuffer CreateCommandBuffer()
         {
             var cmds = new EntityCommandBuffer(Allocator.TempJob, -1, PlaybackPolicy.SinglePlayback);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
             cmds.SystemID = ms_ExecutingSystem != null ? ms_ExecutingSystem.CheckedState()->m_SystemID : 0;
-#endif
             m_PendingBuffers.Add(cmds);
 
             return cmds;
@@ -112,7 +114,7 @@ namespace Unity.Entities
         ///     public struct ProcessInBackgroundJob : IJobForEachWithEntity&lt;ProcessInfo&gt;
         ///     {
         ///         [ReadOnly]
-        ///         public EntityCommandBuffer.Concurrent ConcurrentCommands;
+        ///         public EntityCommandBuffer.ParallelWriter ConcurrentCommands;
         ///
         ///         public void Execute(Entity entity, int index, [ReadOnly] ref ProcessInfo info)
         ///         {
@@ -130,7 +132,7 @@ namespace Unity.Entities
         ///
         ///         var ecbSystem =
         ///             World.GetOrCreateSystem&lt;EndSimulationEntityCommandBufferSystem&gt;();
-        ///         job.ConcurrentCommands = ecbSystem.CreateCommandBuffer().ToConcurrent();
+        ///         job.ConcurrentCommands = ecbSystem.CreateCommandBuffer().AsParallelWriter();
         ///
         ///         var handle = job.Schedule(this, inputDeps);
         ///         ecbSystem.AddJobHandleForProducer(handle);
@@ -217,7 +219,11 @@ namespace Unity.Entities
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     try
                     {
+                        var system = GetSystemFromSystemID(World, buffer.SystemID);
+                        var systemName = system != null ? TypeManager.GetSystemName(system.GetType()) : "Unknown";
+                        Profiler.BeginSample(systemName);
                         buffer.Playback(EntityManager);
+                        Profiler.EndSample();
                     }
                     catch (Exception e)
                     {

@@ -4,10 +4,6 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Assertions;
 using Unity.Burst;
-using Unity.Entities.Serialization;
-#if !NET_DOTS
-using Unity.Properties;
-#endif
 
 namespace Unity.Entities
 {
@@ -19,6 +15,9 @@ namespace Unity.Entities
 
     internal unsafe class ManagedComponentStore
     {
+        readonly ManagedObjectClone m_ManagedObjectClone = new ManagedObjectClone();
+        readonly ManagedObjectRemap m_ManagedObjectRemap = new ManagedObjectRemap();
+
         UnsafeMultiHashMap<int, int> m_HashLookup = new UnsafeMultiHashMap<int, int>(128, Allocator.Persistent);
 
         List<object> m_SharedComponentData = new List<object>();
@@ -32,7 +31,7 @@ namespace Unity.Entities
         }
 
         UnsafeList m_SharedComponentInfo = new UnsafeList(Allocator.Persistent);
-
+        private int m_SharedComponentVersion;
         internal object[] m_ManagedComponentData = new object[64];
 
         public void SetManagedComponentCapacity(int newCapacity)
@@ -245,10 +244,11 @@ namespace Unity.Entities
 
         private int Add(int typeIndex, int hashCode, object newData)
         {
+            m_SharedComponentVersion++;
             var info = new SharedComponentInfo
             {
                 RefCount = 1,
-                Version = 1,
+                Version = m_SharedComponentVersion,
                 ComponentType = typeIndex,
                 HashCode = hashCode
             };
@@ -279,13 +279,14 @@ namespace Unity.Entities
 
         public void IncrementSharedComponentVersion(int index)
         {
-            SharedComponentInfoPtr[index].Version++;
+            m_SharedComponentVersion++;
+            SharedComponentInfoPtr[index].Version = m_SharedComponentVersion;
         }
 
         public int GetSharedComponentVersion<T>(T sharedData) where T : struct
         {
             var index = FindSharedComponentIndex(TypeManager.GetTypeIndex<T>(), sharedData);
-            return index == -1 ? 0 : SharedComponentInfoPtr[index].Version;
+            return SharedComponentInfoPtr[index == -1 ? 0 : index].Version;
         }
 
         public T GetSharedComponentData<T>(int index) where T : struct
@@ -298,7 +299,7 @@ namespace Unity.Entities
 
         public object GetSharedComponentDataBoxed(int index, int typeIndex)
         {
-#if !NET_DOTS
+#if !UNITY_DOTSRUNTIME
             if (index == 0)
                 return Activator.CreateInstance(TypeManager.GetType(typeIndex));
 #else
@@ -334,6 +335,11 @@ namespace Unity.Entities
 
             if (newCount != 0)
                 return;
+
+            // Bump default version when a shared component is removed completely.
+            // This ensures that when asking for a shared component that previously existed and now longer exists
+            // It will always return a change value.
+            IncrementSharedComponentVersion(0);
 
             var hashCode = infos[index].HashCode;
 
@@ -487,7 +493,7 @@ namespace Unity.Entities
                 var dstIndex = InsertSharedComponentAssumeNonDefaultMove(typeIndex, hashCode, srcData);
 
                 SharedComponentInfoPtr[dstIndex].RefCount += srcInfos[srcIndex].RefCount - 1;
-                SharedComponentInfoPtr[dstIndex].Version++;
+                IncrementSharedComponentVersion(dstIndex);
 
                 remap[srcIndex] = dstIndex;
             }
@@ -533,7 +539,7 @@ namespace Unity.Entities
                 int srcRefCount = remapPtr[srcIndex];
                 SharedComponentInfoPtr[dstIndex].RefCount += srcRefCount - 1;
                 srcManagedComponents.RemoveReference(srcIndex, srcRefCount);
-                SharedComponentInfoPtr[dstIndex].Version++;
+                IncrementSharedComponentVersion(dstIndex);
 
                 remapPtr[srcIndex] = dstIndex;
             }
@@ -565,19 +571,25 @@ namespace Unity.Entities
         public void PatchEntities(Archetype* archetype, Chunk* chunk, int entityCount,
             EntityRemapUtility.EntityRemapInfo* remapping)
         {
-#if !NET_DOTS
+#if !UNITY_DOTSRUNTIME
             var firstManagedComponent = archetype->FirstManagedComponent;
             var numManagedComponents = archetype->NumManagedComponents;
+            var hasHybridComponents = archetype->HasHybridComponents;
+            var types = archetype->Types;
+
             for (int i = 0; i < numManagedComponents; ++i)
             {
                 int type = i + firstManagedComponent;
-                var a = (int*)ChunkDataUtility.GetComponentDataRO(chunk, 0, type);
-                for (int ei = 0; ei < entityCount; ++ei)
+                if (!hasHybridComponents || TypeManager.GetTypeInfo(types[type].TypeIndex).Category != TypeManager.TypeCategory.Class)
                 {
-                    if (a[ei] != 0)
+                    var a = (int*) ChunkDataUtility.GetComponentDataRO(chunk, 0, type);
+                    for (int ei = 0; ei < entityCount; ++ei)
                     {
-                        var obj = m_ManagedComponentData[a[ei]];
-                        EntityRemapUtility.PatchEntityInBoxedType(obj, remapping);
+                        if (a[ei] != 0)
+                        {
+                            var obj = m_ManagedComponentData[a[ei]];
+                            m_ManagedObjectRemap.RemapEntityReferences(ref obj, remapping);
+                        }
                     }
                 }
             }
@@ -586,7 +598,7 @@ namespace Unity.Entities
 
         void PatchEntitiesForPrefab(int* managedComponents, int numManagedComponents, int allocatedCount, int remappingCount, Entity* remapSrc, Entity* remapDst)
         {
-#if !NET_DOTS
+#if !UNITY_DOTSRUNTIME
             for (int i = 0; i < allocatedCount; ++i)
             {
                 for (int c = 0; c < numManagedComponents; c++)
@@ -595,7 +607,7 @@ namespace Unity.Entities
                     if (managedComponentIndex != 0)
                     {
                         var obj = m_ManagedComponentData[managedComponentIndex];
-                        EntityRemapUtility.PatchEntityForPrefabInBoxedType(obj, remapSrc, remapDst, remappingCount);
+                        m_ManagedObjectRemap.RemapEntityReferencesForPrefab(ref obj, remapSrc, remapDst, remappingCount);
                     }
                 }
                 managedComponents += numManagedComponents;
@@ -722,53 +734,13 @@ namespace Unity.Entities
             managedDeferredCommands.Reset();
         }
 
-        public static object CloneManagedComponent(object obj)
-        {
-            if (obj == null)
-            {
-                return null;
-            }
-            if (obj is ICloneable cloneable)
-            {
-                return cloneable.Clone();
-            }
-
-            {
-#if !NET_DOTS
-                var type = obj.GetType();
-                var buffer = new UnsafeAppendBuffer(16, 16, Allocator.Temp);
-                var writer = new ManagedObjectBinaryWriter(&buffer);
-                writer.WriteObject(obj);
-
-                var readBuffer = buffer.AsReader();
-                var r2 = new ManagedObjectBinaryReader(&readBuffer, writer.GetObjectTable());
-                var newObj = r2.ReadObject(type);
-                buffer.Dispose();
-                return newObj;
-#else
-                // Until DOTS Runtime supports Properties just reuse the same instance
-                return obj;
-#endif
-            }
-        }
-
-#if !NET_DOTS
-        internal static object CloneAndPatchManagedComponent(object obj, EntityRemapUtility.EntityRemapInfo* remapping)
-        {
-            var clone = CloneManagedComponent(obj);
-            EntityRemapUtility.PatchEntityInBoxedType(clone, remapping);
-            return clone;
-        }
-
-#endif
-
         private void CloneManagedComponents(int* srcArray, int componentCount, int* dstArray, int instanceCount)
         {
             for (int src = 0; src < componentCount; ++src)
             {
                 object sourceComponent = m_ManagedComponentData[srcArray[src]];
                 for (int i = 0; i < instanceCount; ++i)
-                    m_ManagedComponentData[dstArray[i]] = CloneManagedComponent(sourceComponent);
+                    m_ManagedComponentData[dstArray[i]] = m_ManagedObjectClone.Clone(sourceComponent);
                 dstArray += instanceCount;
             }
         }
@@ -823,7 +795,7 @@ namespace Unity.Entities
             for (int i = 0; i < count; ++i)
             {
                 var obj = srcManagedComponentStore.m_ManagedComponentData[indices[i]];
-                var clone = CloneManagedComponent(obj);
+                var clone = m_ManagedObjectClone.Clone(obj);
                 int dstIndex = dstEntityComponentStore.AllocateManagedComponentIndex();
                 indices[i] = dstIndex;
                 (m_ManagedComponentData[dstIndex] as IDisposable)?.Dispose();

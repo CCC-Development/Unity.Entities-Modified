@@ -85,8 +85,8 @@ namespace Unity.Entities.Tests
             for (int i = 0; i < chunks.Length; ++i)
             {
                 var chunk = chunks[i];
-                var shared = chunk.GetSharedComponentData(m_Manager.GetArchetypeChunkSharedComponentType<SharedData1>(), m_Manager);
-                var testDataArray = chunk.GetNativeArray(m_Manager.GetArchetypeChunkComponentType<EcsTestData>(true));
+                var shared = chunk.GetSharedComponentData(m_Manager.GetSharedComponentTypeHandle<SharedData1>(), m_Manager);
+                var testDataArray = chunk.GetNativeArray(m_Manager.GetComponentTypeHandle<EcsTestData>(true));
                 for (int j = 0; j < testDataArray.Length; ++j)
                 {
                     Assert.AreEqual(shared.value, testDataArray[i].value % 5);
@@ -94,6 +94,56 @@ namespace Unity.Entities.Tests
             }
 
             chunks.Dispose();
+            entities.Dispose();
+            creationWorld.Dispose();
+        }
+
+        [Test]
+        public void MoveEntitiesWithChunkComponentsWithQuery()
+        {
+            var creationWorld = new World("CreationWorld");
+            var creationManager = creationWorld.EntityManager;
+
+            var archetype = creationManager.CreateArchetype(typeof(EcsTestData), ComponentType.ChunkComponent<EcsTestData2>());
+
+            var entities = new NativeArray<Entity>(10000, Allocator.Temp);
+            creationManager.CreateEntity(archetype, entities);
+            ArchetypeChunk currentChunk = ArchetypeChunk.Null;
+            int chunkCount = 0;
+            for (int i = 0; i != entities.Length; i++)
+            {
+                if (creationManager.GetChunk(entities[i]) != currentChunk)
+                {
+                    currentChunk = creationManager.GetChunk(entities[i]);
+                    creationManager.SetChunkComponentData(currentChunk, new EcsTestData2(++chunkCount));
+                }
+                creationManager.SetComponentData(entities[i], new EcsTestData(chunkCount));
+            }
+
+            m_Manager.Debug.CheckInternalConsistency();
+            creationManager.Debug.CheckInternalConsistency();
+
+            var query = creationManager.CreateEntityQuery(typeof(EcsTestData));
+
+            m_Manager.MoveEntitiesFrom(creationManager, query);
+
+            m_Manager.Debug.CheckInternalConsistency();
+            creationManager.Debug.CheckInternalConsistency();
+
+            var group = m_Manager.CreateEntityQuery(typeof(EcsTestData), ComponentType.ChunkComponent<EcsTestData2>());
+            Assert.AreEqual(entities.Length, group.CalculateEntityCount());
+            Assert.AreEqual(0, creationManager.CreateEntityQuery(typeof(EcsTestData)).CalculateEntityCount());
+
+            var movedEntities = group.ToEntityArray(Allocator.TempJob);
+            for (int i = 0; i < movedEntities.Length; ++i)
+            {
+                var entity = movedEntities[i];
+                var valueFromComponent = m_Manager.GetComponentData<EcsTestData>(entity).value;
+                var valueFromChunkComponent = m_Manager.GetChunkComponentData<EcsTestData2>(entity).value0;
+                Assert.AreEqual(valueFromComponent, valueFromChunkComponent);
+            }
+
+            movedEntities.Dispose();
             entities.Dispose();
             creationWorld.Dispose();
         }
@@ -186,8 +236,8 @@ namespace Unity.Entities.Tests
             for (int i = 0; i < chunks.Length; ++i)
             {
                 var chunk = chunks[i];
-                var shared = chunk.GetSharedComponentData(m_Manager.GetArchetypeChunkSharedComponentType<SharedData1>(), m_Manager);
-                var testDataArray = chunk.GetNativeArray(m_Manager.GetArchetypeChunkComponentType<EcsTestData>(true));
+                var shared = chunk.GetSharedComponentData(m_Manager.GetSharedComponentTypeHandle<SharedData1>(), m_Manager);
+                var testDataArray = chunk.GetNativeArray(m_Manager.GetComponentTypeHandle<EcsTestData>(true));
                 for (int j = 0; j < testDataArray.Length; ++j)
                 {
                     Assert.AreEqual(shared.value, testDataArray[i].value % 5);
@@ -223,8 +273,8 @@ namespace Unity.Entities.Tests
             var chunksPerValue = new int[5];
             var chunks = srcGroup.CreateArchetypeChunkArray(Allocator.TempJob);
 
-            var sharedData1Type = creationManager.GetArchetypeChunkSharedComponentType<SharedData1>();
-            var ecsTestData2Type = creationManager.GetArchetypeChunkComponentType<EcsTestData2>(false);
+            var sharedData1Type = creationManager.GetSharedComponentTypeHandle<SharedData1>();
+            var ecsTestData2Type = creationManager.GetComponentTypeHandle<EcsTestData2>(false);
 
             foreach (var chunk in chunks)
             {
@@ -408,62 +458,6 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [Ignore("This behaviour is currently not intended. It prevents streaming efficiently.")]
-        public void MoveEntitiesPatchesEntityReferencesInSharedComponentData()
-        {
-            int numberOfEntitiesPerManager = 10000;
-            int frequency = 5;
-
-            var targetArchetype = m_Manager.CreateArchetype(typeof(EcsTestData), typeof(EcsTestSharedCompEntity));
-            var targetEntities = new NativeArray<Entity>(numberOfEntitiesPerManager, Allocator.Temp);
-            m_Manager.CreateEntity(targetArchetype, targetEntities);
-            for (int i = 0; i != targetEntities.Length; i++)
-            {
-                m_Manager.SetComponentData(targetEntities[i], new EcsTestData(i));
-                m_Manager.SetSharedComponentData(targetEntities[i], new EcsTestSharedCompEntity(targetEntities[i % frequency]));
-            }
-
-            var sourceWorld = new World("SourceWorld");
-            var sourceManager = sourceWorld.EntityManager;
-            var sourceArchetype = sourceManager.CreateArchetype(typeof(EcsTestData), typeof(EcsTestSharedCompEntity));
-            var sourceEntities = new NativeArray<Entity>(numberOfEntitiesPerManager, Allocator.Temp);
-            sourceManager.CreateEntity(sourceArchetype, sourceEntities);
-            for (int i = 0; i != sourceEntities.Length; i++)
-            {
-                sourceManager.SetComponentData(sourceEntities[i], new EcsTestData(numberOfEntitiesPerManager + i));
-                sourceManager.SetSharedComponentData(sourceEntities[i], new EcsTestSharedCompEntity(sourceEntities[i % frequency]));
-            }
-
-            m_Manager.Debug.CheckInternalConsistency();
-            sourceManager.Debug.CheckInternalConsistency();
-
-            m_Manager.MoveEntitiesFrom(sourceManager);
-
-            m_Manager.Debug.CheckInternalConsistency();
-            sourceManager.Debug.CheckInternalConsistency();
-
-            var group = m_Manager.CreateEntityQuery(typeof(EcsTestData), typeof(EcsTestSharedCompEntity));
-            Assert.AreEqual(numberOfEntitiesPerManager * 2, group.CalculateEntityCount());
-            Assert.AreEqual(0, sourceManager.CreateEntityQuery(typeof(EcsTestData)).CalculateEntityCount());
-
-            var testDataArray = group.ToComponentDataArray<EcsTestData>(Allocator.TempJob);
-            var entities = group.ToEntityArray(Allocator.TempJob);
-
-            for (int i = 0; i != numberOfEntitiesPerManager; i++)
-                Assert.AreEqual(testDataArray[i].value % frequency,
-                    m_Manager.GetComponentData<EcsTestData>(m_Manager.GetSharedComponentData<EcsTestSharedCompEntity>(entities[i]).value).value);
-            for (int i = numberOfEntitiesPerManager; i != numberOfEntitiesPerManager * 2; i++)
-                Assert.AreEqual(numberOfEntitiesPerManager + testDataArray[i].value % frequency,
-                    m_Manager.GetComponentData<EcsTestData>(m_Manager.GetSharedComponentData<EcsTestSharedCompEntity>(entities[i]).value).value);
-
-            testDataArray.Dispose();
-            entities.Dispose();
-            targetEntities.Dispose();
-            sourceEntities.Dispose();
-            sourceWorld.Dispose();
-        }
-
-        [Test]
         public void MoveEntitiesFromCanReturnEntities()
         {
             var creationWorld = new World("CreationWorld");
@@ -570,14 +564,14 @@ namespace Unity.Entities.Tests
         {
             const int creationWorldVersion = 42;
             const int dstWorldVersion = 500;
-            const int initialSharedVersion = 2;
+            const int initialSharedVersion = 3;
             //@TODO: AddSharedComponentData should be optimized to only do one move
             const int initialOrderVersion = 5;
 
             var creationWorld = new World("CreationWorld");
             var creationManager = creationWorld.EntityManager;
 
-            Assert.AreEqual(0, m_Manager.GetSharedComponentOrderVersion(new SharedData1(1)));
+            Assert.AreEqual(1, m_Manager.GetSharedComponentOrderVersion(new SharedData1(1)));
             Assert.AreEqual(0, m_Manager.GetComponentOrderVersion<EcsTestData>());
 
             var entity = m_Manager.CreateEntity(typeof(EcsTestData));
@@ -610,12 +604,12 @@ namespace Unity.Entities.Tests
             creationWorld.Dispose();
         }
 
-#if !UNITY_DOTSPLAYER_IL2CPP
+#if !NET_DOTS
 // https://unity3d.atlassian.net/browse/DOTSR-1432
 
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         [Test]
-        [StandaloneFixme] // No Unity.Properties Support
+        [DotsRuntimeFixme] // No Unity.Properties Support
         public void MoveEntitiesPatchesEntityReferences_ManagedComponents([Values] bool useFilteredMove)
         {
             int numberOfEntitiesPerManager = 10000;
@@ -673,7 +667,7 @@ namespace Unity.Entities.Tests
         }
 
         [Test]
-        [StandaloneFixme] // No Unity.Properties Support
+        [DotsRuntimeFixme] // No Unity.Properties Support
         public void MoveEntitiesPatchesEntityReferencesInCollections_ManagedComponents()
         {
             int numberOfEntitiesPerManager = 100;

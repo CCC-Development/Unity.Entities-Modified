@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Unity.Assertions;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
@@ -37,7 +38,7 @@ namespace Unity.Entities
                 var countInArchetype = 0;
                 for (var j = 0; j < archetype->Chunks.Count; ++j)
                 {
-                    var chunk = archetype->Chunks.p[j];
+                    var chunk = archetype->Chunks[j];
                     Assert.IsTrue(chunk->Archetype == archetype);
                     Assert.IsTrue(chunk->Capacity >= chunk->Count);
                     Assert.AreEqual(chunk->Count, archetype->Chunks.GetChunkEntityCount(j));
@@ -77,6 +78,7 @@ namespace Unity.Entities
                         Assert.IsTrue(chunk == chunkHeader.ArchetypeChunk.m_Chunk);
                         var metaChunk = GetChunk(chunk->metaChunkEntity);
                         Assert.IsTrue(metaChunk->Archetype == chunk->Archetype->MetaChunkArchetype);
+                        Assert.IsTrue(chunkHeader.ArchetypeChunk.m_EntityComponentStore == selfPtr);
                     }
 
                     for (int iType = managedTypeBegin; iType < managedTypeEnd; ++iType)
@@ -199,6 +201,11 @@ namespace Unity.Entities
         {
             if (count < 1)
                 throw new ArgumentException($"Invalid component count");
+
+            // NOTE: LookUpCache / ComponentDataFromEntity uses short for the IndexInArchetype cache
+            if (count >= short.MaxValue)
+                throw new ArgumentException($"Archetypes can have a maximum of {short.MaxValue} components.");
+
             if (types[0].TypeIndex == 0)
                 throw new ArgumentException($"Component type may not be null");
             if (types[0].TypeIndex != m_EntityType)
@@ -209,6 +216,10 @@ namespace Unity.Entities
                 if (types[i - 1].TypeIndex == types[i].TypeIndex)
                     throw new ArgumentException(
                         $"It is not allowed to have two components of the same type on the same entity. ({types[i - 1]} and {types[i]})");
+
+                var SizeInChunk = GetTypeInfo(types[i].TypeIndex).SizeInChunk;
+                if (SizeInChunk > ushort.MaxValue)
+                    throw new ArgumentException($"IComponentData {types[i]} is too large. SizeOf may not be larger than {ushort.MaxValue}");
             }
         }
 
@@ -315,6 +326,31 @@ namespace Unity.Entities
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void AssertCanAddComponents(UnsafeMatchingArchetypePtrList archetypeList, ComponentTypes componentTypes)
+        {
+            int newShared = 0;
+            int totalNewComponentSize = 0;
+            for (int i = 0; i < componentTypes.Length; i++)
+            {
+                var componentType = componentTypes.GetComponentType(i);
+                if (componentType == m_EntityComponentType)
+                    throw new ArgumentException("Cannot add Entity as a component.");
+                if (componentType.IsSharedComponent)
+                    newShared++;
+                totalNewComponentSize += GetComponentArraySize(GetTypeInfo(componentType.TypeIndex).SizeInChunk, 1);
+            }
+
+            for (int i = 0; i < archetypeList.Length; i++)
+            {
+                var archetype = archetypeList.Ptr[i]->Archetype;
+                if ((archetype->NumSharedComponents + newShared) > kMaxSharedComponentCount)
+                    throw new InvalidOperationException($"Cannot add more than {kMaxSharedComponentCount} SharedComponent to a single Archetype");
+                if ((archetype->InstanceSizeWithOverhead + totalNewComponentSize) > Chunk.GetChunkBufferSize())
+                    throw new InvalidOperationException("Entity archetype component data is too large. Previous archetype size per instance {archetype->InstanceSizeWithOverhead}  bytes. Attempting to add component size {componentInstanceSize} bytes. Maximum chunk size {chunkDataSize}.");
+            }
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public void AssertCanAddComponents(Entity entity, ComponentTypes types)
         {
             for (int i = 0; i < types.Length; ++i)
@@ -322,7 +358,30 @@ namespace Unity.Entities
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void AssertCanAddComponent(NativeList<EntityBatchInChunk> batches, ComponentType componentType)
+        {
+            Archetype* archetype = null;
+            for (int i = 0; i < batches.Length; i++)
+            {
+                var nextArchetype = batches[i].Chunk->Archetype;
+                if (nextArchetype != archetype)
+                {
+                    if (archetype != null)
+                        AssertCanAddComponent(nextArchetype, componentType);
+                    archetype = nextArchetype;
+                }
+            }
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public void AssertCanRemoveComponent(Entity entity, ComponentType componentType)
+        {
+            if (componentType == m_EntityComponentType)
+                throw new ArgumentException("Cannot remove Entity as a component. Use DestroyEntity if you want to delete Entity and all associated components.");
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void AssertCanRemoveComponent(NativeArray<Entity> entity, ComponentType componentType)
         {
             if (componentType == m_EntityComponentType)
                 throw new ArgumentException("Cannot remove Entity as a component. Use DestroyEntity if you want to delete Entity and all associated components.");
@@ -337,7 +396,9 @@ namespace Unity.Entities
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public void AssertWillDestroyAllInLinkedEntityGroup(NativeArray<ArchetypeChunk> chunkArray,
-            ArchetypeChunkBufferType<LinkedEntityGroup> linkedGroupType)
+            BufferTypeHandle<LinkedEntityGroup> linkedGroupTypeHandle,
+            ref Entity errorEntity,
+            ref Entity errorReferencedEntity)
         {
             var chunks = (ArchetypeChunk*)chunkArray.GetUnsafeReadOnlyPtr();
             var chunksCount = chunkArray.Length;
@@ -350,15 +411,16 @@ namespace Unity.Entities
                 chunk->Flags |= tempChunkStateFlag;
             }
 
-            string error = null;
+            errorEntity = default;
+            errorReferencedEntity = default;
 
             for (int i = 0; i < chunkArray.Length; ++i)
             {
-                if (!chunks[i].Has(linkedGroupType))
+                if (!chunks[i].Has(linkedGroupTypeHandle))
                     continue;
 
                 var chunk = chunks[i];
-                var buffers = chunk.GetBufferAccessor(linkedGroupType);
+                var buffers = chunk.GetBufferAccessor(linkedGroupTypeHandle);
 
                 for (int b = 0; b != buffers.Length; b++)
                 {
@@ -373,8 +435,10 @@ namespace Unity.Entities
                             var referencedChunk = GetChunk(referencedEntity);
 
                             if ((referencedChunk->Flags & tempChunkStateFlag) == 0)
-                                error =
-                                    $"DestroyEntity(EntityQuery query) is destroying entity {entities[0]} which contains a LinkedEntityGroup and the entity {entities[e]} in that group is not included in the query. If you want to destroy entities using a query all linked entities must be contained in the query..";
+                            {
+                                errorEntity = entities[0];
+                                errorReferencedEntity = referencedEntity;
+                            }
                         }
                     }
                 }
@@ -386,10 +450,21 @@ namespace Unity.Entities
                 Assert.IsTrue((chunk->Flags & tempChunkStateFlag) != 0);
                 chunk->Flags &= ~tempChunkStateFlag;
             }
-
-            if (error != null)
-                throw new ArgumentException(error);
         }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void ThrowDestroyEntityError(Entity errorEntity, Entity errorReferencedEntity)
+        {
+            ThrowDestroyEntityErrorFancy(errorEntity, errorReferencedEntity);
+            throw new ArgumentException($"DestroyEntity(EntityQuery query) is destroying an entity which contains a LinkedEntityGroup with an entity not included in the query. If you want to destroy entities using a query all linked entities must be contained in the query.. For more detail, disable Burst compilation.");
+        }
+
+        [BurstDiscard]
+        private void ThrowDestroyEntityErrorFancy(Entity errorEntity, Entity errorReferencedEntity)
+        {
+            throw new ArgumentException($"DestroyEntity(EntityQuery query) is destroying entity {errorEntity} which contains a LinkedEntityGroup and the entity {errorReferencedEntity} in that group is not included in the query. If you want to destroy entities using a query all linked entities must be contained in the query..");
+        }
+
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public static void AssertArchetypeDoesNotRemoveSystemStateComponents(Archetype* src, Archetype* dst)
@@ -397,7 +472,7 @@ namespace Unity.Entities
             int o = 0;
             int n = 0;
 
-            for (; n < src->TypesCount && o < dst->TypesCount;)
+            for (; o < src->TypesCount && n < dst->TypesCount;)
             {
                 int srcType = src->Types[o].TypeIndex;
                 int dstType = dst->Types[n].TypeIndex;
@@ -425,16 +500,25 @@ namespace Unity.Entities
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-        public void AssertCanAddChunkComponent(NativeArray<ArchetypeChunk> chunkArray, ComponentType componentType)
+        public void CheckCanAddChunkComponent(NativeArray<ArchetypeChunk> chunkArray, ComponentType componentType, ref bool result)
         {
             var chunks = (ArchetypeChunk*)chunkArray.GetUnsafeReadOnlyPtr();
+
             for (int i = 0; i < chunkArray.Length; ++i)
             {
                 var chunk = chunks[i].m_Chunk;
                 if (ChunkDataUtility.GetIndexInTypeArray(chunk->Archetype, componentType.TypeIndex) != -1)
-                    throw new ArgumentException(
-                        $"A chunk component with type:{componentType} has already been added to the chunk.");
+                {
+                    result = false;
+                    return;
+                }
             }
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void ThrowDuplicateChunkComponentError(ComponentType componentType)
+        {
+            throw new ArgumentException($"A chunk component with type:{componentType} has already been added to the chunk.");
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -505,16 +589,16 @@ namespace Unity.Entities
             if (queryStore != store)
             {
                 if (queryStore ==  null)
-                    throw new System.ArgumentException("The EntityQuery has been disposed and can no longer be used.");
+                    throw new System.InvalidOperationException("The EntityQuery has been disposed and can no longer be used.");
                 else
-                    throw new System.ArgumentException("EntityQuery is associated with a different world");
+                    throw new System.InvalidOperationException("EntityQuery is associated with a different world");
             }
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public static void AssertValidArchetype(EntityComponentStore* queryStore, EntityArchetype archetype)
         {
-            #if ENABLE_UNITY_COLLECTIONS_CHECKS
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (archetype._DebugComponentStore != queryStore)
             {
                 if (archetype.Archetype == null)
@@ -522,12 +606,27 @@ namespace Unity.Entities
                 else
                     throw new System.ArgumentException("The EntityArchetype was not created by this EntityManager");
             }
-
-            #endif
+#endif
         }
 
         // ----------------------------------------------------------------------------------------------------------
         // INTERNAL
         // ----------------------------------------------------------------------------------------------------------
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        internal void AssertZeroSizedComponent(int typeIndex)
+        {
+            if (TypeManager.GetTypeInfo(typeIndex).IsZeroSized)
+                throw new System.ArgumentException(
+                    "Get component data can not be called with a zero sized component.");
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        internal static void AssertComponentSizeMatches(int typeIndex, int size)
+        {
+            if (TypeManager.GetTypeInfo(typeIndex).SizeInChunk != size)
+                throw new System.ArgumentException(
+                    "SetComponentData can not be called with a zero sized component and must have same size as sizeof(T).");
+        }
     }
 }

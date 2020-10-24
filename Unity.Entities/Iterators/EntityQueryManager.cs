@@ -21,7 +21,7 @@ namespace Unity.Entities
         {
             queryManager->m_DependencyManager = dependencyManager;
             queryManager->m_GroupDataChunkAllocator = new BlockAllocator(AllocatorManager.Persistent, 16 * 1024 * 1024); // 16MB should be enough
-            ref var groupCache = ref UnsafeUtilityEx.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref queryManager->m_EntityGroupDataCacheUntyped);
+            ref var groupCache = ref UnsafeUtility.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref queryManager->m_EntityGroupDataCacheUntyped);
             groupCache = new UnsafeMultiHashMap<int, int>(1024, Allocator.Persistent);
             queryManager->m_EntityGroupDatas = new UnsafeEntityQueryDataPtrList(0, Allocator.Persistent);
             queryManager->m_EntityQueryMasksAllocated = 0;
@@ -34,7 +34,7 @@ namespace Unity.Entities
 
         void Dispose()
         {
-            ref var groupCache = ref UnsafeUtilityEx.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref m_EntityGroupDataCacheUntyped);
+            ref var groupCache = ref UnsafeUtility.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref m_EntityGroupDataCacheUntyped);
             groupCache.Dispose();
             for (var g = 0; g < m_EntityGroupDatas.Length; ++g)
             {
@@ -450,7 +450,7 @@ namespace Unity.Entities
             for (var i = 0; i < queryCount; ++i)
                 hash = hash * 397 ^ query[i].GetHashCode();
             EntityQueryData* cachedQuery = null;
-            ref var groupCache = ref UnsafeUtilityEx.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref m_EntityGroupDataCacheUntyped);
+            ref var groupCache = ref UnsafeUtility.As<UntypedUnsafeHashMap, UnsafeMultiHashMap<int, int>>(ref m_EntityGroupDataCacheUntyped);
 
             if (groupCache.TryGetFirstValue(hash, out var entityGroupDataIndex, out var iterator))
             {
@@ -487,6 +487,7 @@ namespace Unity.Entities
                 var ecs = access->EntityComponentStore;
 
                 cachedQuery->MatchingArchetypes = new UnsafeMatchingArchetypePtrList(access->EntityComponentStore);
+                cachedQuery->MatchingChunkCache = new UnsafeCachedChunkList(access->EntityComponentStore);
 
                 cachedQuery->EntityQueryMask = new EntityQueryMask();
 
@@ -498,6 +499,7 @@ namespace Unity.Entities
 
                 groupCache.Add(hash, m_EntityGroupDatas.Length);
                 m_EntityGroupDatas.Add(cachedQuery);
+                cachedQuery->MatchingChunkCache.InvalidateCache();
             }
 
             return EntityQuery.Construct(cachedQuery, access);
@@ -575,6 +577,9 @@ namespace Unity.Entities
             match->Archetype->SetMask(query->EntityQueryMask);
 
             query->MatchingArchetypes.Add(match);
+
+            // Add back pointer from archetype to query data
+            archetype->MatchingQueryData.Add(query);
 
             for (var component = 0; component < query->RequiredComponentsCount; ++component)
             {
@@ -819,6 +824,76 @@ namespace Unity.Entities
         }
     }
 
+    unsafe struct UnsafeCachedChunkList
+    {
+        [NativeDisableUnsafePtrRestriction]
+        internal UnsafeChunkPtrList MatchingChunks;
+
+        [NativeDisableUnsafePtrRestriction]
+        internal UnsafeIntList PerChunkMatchingArchetypeIndex;
+
+        [NativeDisableUnsafePtrRestriction]
+        internal EntityComponentStore* EntityComponentStore;
+
+        internal bool CacheValid;
+
+        public Chunk** Ptr { get => (Chunk**)MatchingChunks.Ptr; }
+        public int Length { get => MatchingChunks.Length; }
+        public bool IsCacheValid { get => CacheValid; }
+
+        public UnsafeCachedChunkList(EntityComponentStore* entityComponentStore)
+        {
+            EntityComponentStore = entityComponentStore;
+            MatchingChunks = new UnsafeChunkPtrList(0, Allocator.Persistent);
+            PerChunkMatchingArchetypeIndex = new UnsafeIntList(0, Allocator.Persistent);
+            CacheValid = false;
+        }
+
+        public void Append(Chunk** t, int addChunkCount, int matchingArchetypeIndex)
+        {
+            var startIndex = MatchingChunks.Length;
+            MatchingChunks.AddRange(new UnsafeChunkPtrList(t, addChunkCount));
+            for (int i = 0; i < addChunkCount; ++i)
+            {
+                PerChunkMatchingArchetypeIndex.Add(matchingArchetypeIndex);
+            }
+        }
+
+        public void Dispose()
+        {
+            MatchingChunks.Dispose();
+            PerChunkMatchingArchetypeIndex.Dispose();
+        }
+
+        public void InvalidateCache()
+        {
+            CacheValid = false;
+        }
+
+        public static bool CheckCacheConsistency(ref UnsafeCachedChunkList cache, EntityQueryData* data)
+        {
+            var chunkCounter = 0;
+            for (int archetypeIndex = 0; archetypeIndex < data->MatchingArchetypes.Length; ++archetypeIndex)
+            {
+                var archetype = data->MatchingArchetypes.Ptr[archetypeIndex]->Archetype;
+                for (int chunkIndex = 0; chunkIndex < archetype->Chunks.Count; ++chunkIndex)
+                {
+                    if (chunkCounter < cache.MatchingChunks.Length - 1)
+                        return false;
+
+                    if(cache.MatchingChunks.Ptr[chunkCounter++] != archetype->Chunks[chunkIndex])
+                        return false;
+                }
+            }
+
+            // All chunks in cache are accounted for
+            if (chunkCounter != cache.Length)
+                return false;
+
+            return true;
+        }
+    }
+
     unsafe struct EntityQueryData : IDisposable
     {
         //@TODO: better name or remove entirely...
@@ -837,10 +912,20 @@ namespace Unity.Entities
         public EntityQueryMask      EntityQueryMask;
 
         public UnsafeMatchingArchetypePtrList MatchingArchetypes;
+        internal UnsafeCachedChunkList MatchingChunkCache;
+
+        public unsafe UnsafeCachedChunkList GetMatchingChunkCache()
+        {
+            if(!MatchingChunkCache.IsCacheValid)
+                ChunkIterationUtility.RebuildChunkListCache((EntityQueryData*)UnsafeUtility.AddressOf(ref this));
+
+            return MatchingChunkCache;
+        }
 
         public void Dispose()
         {
             MatchingArchetypes.Dispose();
+            MatchingChunkCache.Dispose();
         }
     }
 }

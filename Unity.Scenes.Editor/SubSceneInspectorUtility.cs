@@ -63,19 +63,18 @@ namespace Unity.Scenes.Editor
         {
             public Entity Scene;
             public string Name;
+            public SubScene SubScene;
         }
 
         static NativeArray<Entity> GetActiveWorldSections(World world, Hash128 sceneGUID)
         {
-            if (world == null) return default;
+            if (world == null || !world.IsCreated) return default;
 
             var sceneSystem = world.GetExistingSystem<SceneSystem>();
             if (sceneSystem == null)
                 return default;
 
             var entities = world.EntityManager;
-            if (!entities.IsCreated)
-                return default;
 
             var sceneEntity = sceneSystem.GetSceneEntity(sceneGUID);
 
@@ -89,21 +88,23 @@ namespace Unity.Scenes.Editor
         {
             var loadables = new List<LoadableScene>();
 
+            var world = World.DefaultGameObjectInjectionWorld;
             foreach (var scene in scenes)
             {
-                foreach (var section in GetActiveWorldSections(World.DefaultGameObjectInjectionWorld, scene.SceneGUID))
+                foreach (var section in GetActiveWorldSections(world, scene.SceneGUID))
                 {
-                    var name = scene.SceneAsset != null ? scene.SceneAsset.name : "Missing Scene Asset";
-                    if (World.DefaultGameObjectInjectionWorld.EntityManager.HasComponent<SceneSectionData>(section))
+                    if (world.EntityManager.HasComponent<SceneSectionData>(section))
                     {
-                        var sectionIndex = World.DefaultGameObjectInjectionWorld.EntityManager.GetComponentData<SceneSectionData>(section).SubSectionIndex;
+                        var name = scene.SceneAsset != null ? scene.SceneAsset.name : "Missing Scene Asset";
+                        var sectionIndex = world.EntityManager.GetComponentData<SceneSectionData>(section).SubSectionIndex;
                         if (sectionIndex != 0)
                             name += $" Section: {sectionIndex}";
 
                         loadables.Add(new LoadableScene
                         {
                             Scene = section,
-                            Name = name
+                            Name = name,
+                            SubScene = scene
                         });
                     }
                 }
@@ -112,32 +113,27 @@ namespace Unity.Scenes.Editor
             return loadables.ToArray();
         }
 
-        public static void ForceReimport(SubScene[] scenes)
+        public static void ForceReimport(params SubScene[] scenes)
         {
-            foreach (var scene in scenes)
+            bool needRefresh = false;
+            foreach (var world in World.All)
             {
-                foreach (var world in World.All)
+                var sceneSystem = world.GetExistingSystem<SceneSystem>();
+                if (sceneSystem != null)
                 {
-                    var sceneSystem = world.GetExistingSystem<SceneSystem>();
-                    if (sceneSystem != null)
+                    foreach (var scene in scenes)
                     {
-                        var guid = SceneWithBuildConfigurationGUIDs.Dirty(scene.SceneGUID, sceneSystem.BuildConfigurationGUID);
-                        // Ignoring return as this is just being used to force a reimport, we don't actually care about the hash result
-                        AssetDatabaseCompatibility.GetArtifactHash(guid.ToString(), EntityScenesPaths.SubSceneImporterType, ImportMode.Asynchronous);
+                        var guid = SceneWithBuildConfigurationGUIDs.Dirty(scene.SceneGUID, sceneSystem.BuildConfigurationGUID, out var requestRefresh);
+                        needRefresh |= requestRefresh;
+
+                        // Ignoring return as this is just being used to start an impot, we don't actually care about the hash result
+                        AssetDatabaseCompatibility.GetArtifactHash(guid.ToString(),
+                            EntityScenesPaths.SubSceneImporterType, ImportMode.Asynchronous);
                     }
                 }
             }
-        }
-
-        public static bool IsEditingAll(SubScene[] scenes)
-        {
-            foreach (var scene in scenes)
-            {
-                if (!scene.IsLoaded)
-                    return false;
-            }
-
-            return true;
+            if (needRefresh)
+                AssetDatabase.Refresh();
         }
 
         public static bool CanEditScene(SubScene subScene)
@@ -146,28 +142,6 @@ namespace Unity.Scenes.Editor
                 return false;
 
             return !subScene.IsLoaded;
-        }
-
-        public static bool IsLoaded(SubScene[] scenes)
-        {
-            foreach (var subScene in scenes)
-            {
-                if (subScene.IsLoaded)
-                    return true;
-            }
-
-            return false;
-        }
-
-        public static bool CanEditScene(SubScene[] scenes)
-        {
-            foreach (var subScene in scenes)
-            {
-                if (CanEditScene(subScene))
-                    return true;
-            }
-
-            return false;
         }
 
         public static void EditScene(params SubScene[] scenes)
@@ -186,7 +160,7 @@ namespace Unity.Scenes.Editor
             }
         }
 
-        public static void CloseAndAskSaveIfUserWantsTo(SubScene[] subScenes)
+        public static void CloseAndAskSaveIfUserWantsTo(params SubScene[] subScenes)
         {
             if (!Application.isPlaying)
             {
@@ -217,26 +191,12 @@ namespace Unity.Scenes.Editor
             }
         }
 
-        public static void SaveScene(SubScene[] subScenes)
+        public static void SaveScene(SubScene scene)
         {
-            foreach (var scene in subScenes)
+            if (scene.EditingScene.isLoaded && scene.EditingScene.isDirty)
             {
-                if (scene.EditingScene.isLoaded && scene.EditingScene.isDirty)
-                {
-                    EditorSceneManager.SaveScene(scene.EditingScene);
-                }
+                EditorSceneManager.SaveScene(scene.EditingScene);
             }
-        }
-
-        public static bool IsDirty(SubScene[] scenes)
-        {
-            foreach (var scene in scenes)
-            {
-                if (scene.EditingScene.isLoaded && scene.EditingScene.isDirty)
-                    return true;
-            }
-
-            return false;
         }
 
         public static MinMaxAABB GetActiveWorldMinMax(World world, UnityEngine.Object[] targets)

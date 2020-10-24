@@ -1,5 +1,4 @@
 using System;
-#if !UNITY_DOTSPLAYER
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Jobs;
@@ -26,6 +25,20 @@ namespace Unity.Entities.Tests
                 EntityManager.CreateEntity(typeof(EcsTestData));
 
                 SetSingleton(new EcsTestData(10));
+                Assert.AreEqual(10, GetSingleton<EcsTestData>().value);
+            }
+
+            T GenericMethodWithSingletonAccess<T>(T value) where T : struct, IComponentData
+            {
+                SetSingleton(value);
+                return GetSingleton<T>();
+            }
+
+            public void GetSetSingletonWithGenericParameter()
+            {
+                EntityManager.CreateEntity(typeof(EcsTestData));
+
+                GenericMethodWithSingletonAccess(new EcsTestData(10));
                 Assert.AreEqual(10, GetSingleton<EcsTestData>().value);
             }
 
@@ -167,7 +180,7 @@ namespace Unity.Entities.Tests
                 RequireForUpdate(query);
                 var entity = EntityManager.CreateEntity(typeof(EcsTestData), typeof(EcsTestData2));
                 EntityManager.SetComponentData(entity, new EcsTestData() { value = 3 });
-                
+
                 Assert.AreEqual(3, query.GetSingleton<EcsTestData>().value);
             }
 
@@ -195,6 +208,12 @@ namespace Unity.Entities.Tests
         public void SystemBase_GetSetSingleton()
         {
             TestSystem.GetSetSingleton();
+        }
+
+        [Test]
+        public void SystemBase_GetSetSingletonWithGenericParameter()
+        {
+            TestSystem.GetSetSingletonWithGenericParameter();
         }
 
         [Test]
@@ -279,4 +298,3 @@ namespace Unity.Entities.Tests
 #endif
     }
 }
-#endif

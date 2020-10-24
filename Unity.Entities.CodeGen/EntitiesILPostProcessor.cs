@@ -10,6 +10,7 @@ using Mono.Cecil.Cil;
 using Mono.Cecil.Rocks;
 using Unity.CompilationPipeline.Common.Diagnostics;
 using Unity.CompilationPipeline.Common.ILPostProcessing;
+using Unity.Entities.CodeGen;
 
 [assembly: InternalsVisibleTo("Unity.Entities.Hybrid.CodeGen")]
 namespace Unity.Entities.CodeGen
@@ -27,7 +28,11 @@ namespace Unity.Entities.CodeGen
                     processorTypes.AddRange(assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(EntitiesILPostProcessor)) && !t.IsAbstract));
             }
 
-            return processorTypes.Select(t => (EntitiesILPostProcessor)Activator.CreateInstance(t)).ToArray();
+            var result = processorTypes.Select(t => (EntitiesILPostProcessor)Activator.CreateInstance(t)).ToArray();
+
+            Array.Sort(result);
+
+            return result;
         }
 
         public override ILPostProcessResult Process(ICompiledAssembly compiledAssembly)
@@ -50,6 +55,7 @@ namespace Unity.Entities.CodeGen
             var diagnostics = new List<DiagnosticMessage>();
             foreach (var postProcessor in postProcessors)
             {
+                postProcessor.Defines = Defines;
                 diagnostics.AddRange(postProcessor.PostProcess(assemblyDefinition, componentSystemTypes, out var madeChange));
                 madeAnyChange |= madeChange;
             }
@@ -59,6 +65,17 @@ namespace Unity.Entities.CodeGen
             {
                 diagnostics.AddRange(postProcessor.PostProcessUnmanaged(assemblyDefinition, unmanagedComponentSystemTypes, out var madeChange));
                 madeAnyChange |= madeChange;
+            }
+
+            // Hack to remove Entities => Entities circular references
+            var selfName = assemblyDefinition.Name.FullName;
+            foreach (var referenceName in assemblyDefinition.MainModule.AssemblyReferences)
+            {
+                if (referenceName.FullName == selfName)
+                {
+                    assemblyDefinition.MainModule.AssemblyReferences.Remove(referenceName);
+                    break;
+                }
             }
 
             if (!madeAnyChange || diagnostics.Any(d => d.DiagnosticType == DiagnosticType.Error))
@@ -233,7 +250,7 @@ namespace Unity.Entities.CodeGen
             }
         }
 
-        private static AssemblyDefinition AssemblyDefinitionFor(ICompiledAssembly compiledAssembly)
+        internal static AssemblyDefinition AssemblyDefinitionFor(ICompiledAssembly compiledAssembly)
         {
             var resolver = new PostProcessorAssemblyResolver(compiledAssembly);
             var readerParameters = new ReaderParameters
@@ -285,9 +302,12 @@ namespace Unity.Entities.CodeGen
         }
     }
 
-    abstract class EntitiesILPostProcessor
+    abstract class EntitiesILPostProcessor : IComparable<EntitiesILPostProcessor>
     {
         protected AssemblyDefinition AssemblyDefinition;
+        public string[] Defines { get; set; }
+
+        public virtual int SortWeight => 0;
 
         protected List<DiagnosticMessage> _diagnosticMessages = new List<DiagnosticMessage>();
 
@@ -330,5 +350,20 @@ namespace Unity.Entities.CodeGen
 
             return _diagnosticMessages;
         }
+
+        int IComparable<EntitiesILPostProcessor>.CompareTo(EntitiesILPostProcessor other)
+        {
+            // Sort the postprocessors according to weight primarily, and name secondarily
+            // Needed for determinism and to allow things that work on results of other postprocessors to work
+            // (such as job reflection data for jobs that previous post processors have just made)
+            int diff = SortWeight - other.SortWeight;
+            if (diff != 0)
+                return diff;
+
+            Type ltype = GetType();
+            Type rtype = other.GetType();
+            return ltype.Name.CompareTo(rtype.Name);
+        }
+
     }
 }
