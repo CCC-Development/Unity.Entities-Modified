@@ -35,7 +35,7 @@ namespace Unity.Entities
 
         internal bool Created { get; private set; } = false;
 
-        internal List<ComponentSystemBase> m_systemsToUpdate = new List<ComponentSystemBase>();
+        protected List<ComponentSystemBase> m_systemsToUpdate = new List<ComponentSystemBase>();
         internal List<ComponentSystemBase> m_systemsToRemove = new List<ComponentSystemBase>();
 
         internal UnsafeList<UpdateIndex> m_MasterUpdateList;

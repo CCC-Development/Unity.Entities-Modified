@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEditor.IMGUI.Controls;
 using System.Collections.Generic;
 using Unity.Collections;
