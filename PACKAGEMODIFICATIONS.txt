@@ -5,15 +5,6 @@ Iterators\ArchetypeChunkArray.cs
     + line 241: public bool DidChange<T>(ComponentType componentType, uint version) where T : struct, ISharedComponentData
     + line 289: public uint GetComponentVersion(ComponentType componentType)
 
-2020-02-19 Exposed methods to make it easier to extend the ScriptBehaviourUpdateOrder functionality
-ScriptBehaviourUpdateOrder.cs
-    +/- line 70: private static void InsertManagerIntoSubsystemList -> public static void InsertManagerIntoSubsystemList
-    +/- line 139: internal class DummyDelegateWrapper -> public class DummyDelegateWrapper
-
-2020-03-19 Tweaked the 'NeedsUpdate' getter of the SystemListView in the entity debugger so it would update itself correctly
-Unity.Entities.Editor\EntityDebugger\SystemListView.cs
-    +/- line 492: if (a.subSystemList.Length != b.subSystemList.Length)  ->  if (a.subSystemList != b.subSystemList)
-
 2020-03-28 Added user hook into the entity inspector drawing to allow custom property drawing
 Unity.Entities.Editor\EntityInspector\EntityIMGUIVisitor.cs
     + line 12:		public class InspectorUserHook
