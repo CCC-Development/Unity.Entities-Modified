@@ -92,7 +92,7 @@ namespace Unity.Entities.Editor
         }
 
         internal bool ShowingSomething => getWorldSelection() != null &&
-                                       (selectedEntityQuery != null || !(getSystemSelection() is ComponentSystemBase));
+        (selectedEntityQuery != null || !(getSystemSelection() is ComponentSystemBase));
 
         private int lastVersion = -1;
 

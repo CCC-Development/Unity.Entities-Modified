@@ -61,13 +61,13 @@ namespace Unity.Entities.Editor
 
             internal void MoveToIndex(int newLinearIndex)
             {
-                //if (newLinearIndex >= currentLinearIndex)
-                //{
-                //    currentIndexInChunk += newLinearIndex - currentLinearIndex;
-                //    currentLinearIndex = newLinearIndex;
-                //    UpdateIndexInChunk();
-                //}
-                //else
+                if (newLinearIndex >= currentLinearIndex)
+                {
+                    currentIndexInChunk += newLinearIndex - currentLinearIndex;
+                    currentLinearIndex = newLinearIndex;
+                    UpdateIndexInChunk();
+                }
+                else
                 {
                     Reset(newLinearIndex);
                 }

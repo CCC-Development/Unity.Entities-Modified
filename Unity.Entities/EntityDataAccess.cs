@@ -1093,7 +1093,7 @@ namespace Unity.Entities
         }
 
         [BurstCompatible(GenericTypeArguments = new[] { typeof(BurstCompatibleBufferElement) })]
-        public DynamicBuffer<T> GetBuffer<T>(Entity entity
+        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             , AtomicSafetyHandle safety, AtomicSafetyHandle arrayInvalidationSafety
 #endif
@@ -1112,8 +1112,7 @@ namespace Unity.Entities
                 DependencyManager->CompleteReadAndWriteDependency(typeIndex);
 
             BufferHeader* header =
-                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex,
-                    EntityComponentStore->GlobalSystemVersion);
+                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex);
 
             int internalCapacity = TypeManager.GetTypeInfo(typeIndex).BufferCapacity;
 

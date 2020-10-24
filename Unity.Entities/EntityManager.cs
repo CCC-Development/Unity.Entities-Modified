@@ -91,11 +91,8 @@ namespace Unity.Entities
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
-            if (m_JobMode != m_EntityDataAccess->m_JobMode)
-            {
-                throw new InvalidOperationException($"EntityManager cannot be used from this context job mode {m_JobMode} != current mode {m_EntityDataAccess->m_JobMode}");
-            }
 #endif
+            AssertIsExclusiveTransaction();
             return m_EntityDataAccess;
         }
 
