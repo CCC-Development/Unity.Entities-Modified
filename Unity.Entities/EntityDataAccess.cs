@@ -1092,6 +1092,40 @@ namespace Unity.Entities
 #endif
         }
 
+        [BurstCompatible(GenericTypeArguments = new[] { typeof(BurstCompatibleBufferElement) })]
+        public DynamicBuffer<T> GetBuffer<T>(Entity entity
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            , AtomicSafetyHandle safety, AtomicSafetyHandle arrayInvalidationSafety
+#endif
+        ) where T : struct, IBufferElementData
+        {
+            var typeIndex = TypeManager.GetTypeIndex<T>();
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            EntityComponentStore->AssertEntityHasComponent(entity, typeIndex);
+            if (!TypeManager.IsBuffer(typeIndex))
+                throw new ArgumentException(
+                    $"GetBuffer<{typeof(T)}> may not be IComponentData or ISharedComponentData; currently {TypeManager.GetTypeInfo<T>().Category}");
+#endif
+
+            if (!IsInExclusiveTransaction)
+                DependencyManager->CompleteReadAndWriteDependency(typeIndex);
+
+            BufferHeader* header =
+                (BufferHeader*)EntityComponentStore->GetComponentDataWithTypeRO(entity, typeIndex,
+                    EntityComponentStore->GlobalSystemVersion);
+
+            int internalCapacity = TypeManager.GetTypeInfo(typeIndex).BufferCapacity;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            var useMemoryInit = EntityComponentStore->useMemoryInitPattern != 0;
+            byte memoryInitPattern = EntityComponentStore->memoryInitPattern;
+            return new DynamicBuffer<T>(header, safety, arrayInvalidationSafety, true, useMemoryInit, memoryInitPattern, internalCapacity);
+#else
+            return new DynamicBuffer<T>(header, internalCapacity);
+#endif
+        }
+
         public void SetBufferRaw(Entity entity, int componentTypeIndex, BufferHeader* tempBuffer, int sizeInChunk)
         {
             if (!IsInExclusiveTransaction)

@@ -319,6 +319,7 @@ namespace Unity.Entities
         }
 
         // ADDED BY FBESSETTE 2020-04-09
+        [BurstCompatible(GenericTypeArguments = new[] { typeof(BurstCompatibleBufferElement) })]
         public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
         {
             var typeIndex = TypeManager.GetTypeIndex<T>();

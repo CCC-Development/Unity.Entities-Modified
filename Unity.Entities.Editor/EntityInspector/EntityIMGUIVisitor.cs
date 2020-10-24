@@ -60,12 +60,12 @@ namespace Unity.Entities.Editor
         public EntityIMGUIVisitor(SelectEntityButtonCallback selectEntityButtonCallback, ResolveEntityNameCallback resolveEntityNameCallback)
         {
             // ADDED FBESSETTE 2020-03-28
-            if(InspectorUserHook.s_AdapterBuilder != null)
+            if (InspectorUserHook.s_AdapterBuilder != null)
             {
                 var adapters = InspectorUserHook.s_AdapterBuilder();
                 foreach (var adapter in adapters)
                 {
-                    if(adapter != null)
+                    if (adapter != null)
                         AddAdapter(adapter);
                 }
             }
@@ -84,16 +84,16 @@ namespace Unity.Entities.Editor
                     GUI.enabled = true;
                     EditorGUILayout.LabelField(property.Name, new GUIStyle(EditorStyles.boldLabel) { fontStyle = FontStyle.Bold });
                     GUI.enabled = enabled;
-            }
-            else
-            {
+                }
+                else
+                {
                     EditorGUILayout.LabelField(IMGUIAdapter.GetDisplayName(property));
-            }
+                }
 
                 if (typeof(IComponentData).IsAssignableFrom(typeof(TValue)) && TypeManager.IsZeroSized(TypeManager.GetTypeIndex<TValue>()))
                 {
                     return;
-        }
+                }
 
                 EditorGUI.indentLevel++;
                 base.VisitProperty(property, ref container, ref value);
@@ -108,18 +108,18 @@ namespace Unity.Entities.Editor
         protected override void VisitCollection<TContainer, TCollection, TElement>(Property<TContainer, TCollection> property, ref TContainer container, ref TCollection value)
         {
             if (typeof(TContainer) == typeof(EntityContainer))
-        {
-            var enabled = GUI.enabled;
-            GUI.enabled = true;
+            {
+                var enabled = GUI.enabled;
+                GUI.enabled = true;
                 EditorGUILayout.LabelField(property.Name, new GUIStyle(EditorStyles.boldLabel) { fontStyle = FontStyle.Bold });
-            GUI.enabled = enabled;
+                GUI.enabled = enabled;
             }
             else
             {
                 EditorGUILayout.LabelField(IMGUIAdapter.GetDisplayName(property));
             }
 
-                EditorGUI.indentLevel++;
+            EditorGUI.indentLevel++;
 
             EditorGUILayout.IntField("Size", value.Count);
 
@@ -173,12 +173,12 @@ namespace Unity.Entities.Editor
         }
 
         static bool IsDynamicBufferContainer(Type type)
-            {
+        {
             return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(DynamicBufferContainer<>);
-            }
+        }
 
         static bool IsContainerType<TValue>(ref TValue value)
-            {
+        {
             var type = typeof(TValue);
 
             if (!type.IsValueType && null != value)
