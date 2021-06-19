@@ -46,8 +46,13 @@ namespace Unity.Entities
         public uint Flags;
 
         // Incrementing automatically for each chunk
-        [FieldOffset(36)]
+        [FieldOffset(kSerializedHeaderSize)]
         public ulong SequenceNumber;
+
+        // NOTE: SequenceNumber is not part of the serialized header.
+        //       It is cleared on write to disk, it is a global in memory sequence ID used for comparing chunks.
+        public const int kSerializedHeaderSize = 36;
+
 
         // Chunk header END
 
@@ -58,7 +63,7 @@ namespace Unity.Entities
         [FieldOffset(kBufferOffset)]
         public fixed byte Buffer[4];
 
-        public const int kChunkSize = 16 * 1024 - 256; // allocate a bit less to allow for UnsafeUtility.Malloc header overhead
+        public const int kChunkSize = 16 * 1024;
         public const int kBufferSize = kChunkSize - kBufferOffset;
         public const int kMaximumEntitiesPerChunk = kBufferSize / 8;
 

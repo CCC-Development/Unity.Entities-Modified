@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -13,7 +13,7 @@ namespace Unity.Entities
 {
     internal struct RetainBlobAssets : ISystemStateComponentData
     {
-        // DummyBlobAssetReference will always be null, but will make sure the serializer adds the BlobOwner shared componet 
+        // DummyBlobAssetReference will always be null, but will make sure the serializer adds the BlobOwner shared componet
         public BlobAssetReference<byte> DummyBlobAssetReference;
         public int FramesToRetainBlobAssets;
     }
@@ -44,7 +44,7 @@ namespace Unity.Entities
             if (BlobAssetBatchPtr != null)
                 BlobAssetBatch.Release(BlobAssetBatchPtr);
         }
-        
+
         public void Retain()
         {
             if (BlobAssetBatchPtr != null)
@@ -77,7 +77,7 @@ namespace Unity.Entities
 
         internal static BlobAssetBatch* CreateFromMemory(void* buffer, int expectedTotalDataSize)
         {
-            var batch = (BlobAssetBatch*)buffer; 
+            var batch = (BlobAssetBatch*)buffer;
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (batch->TotalDataSize != expectedTotalDataSize)
@@ -87,7 +87,7 @@ namespace Unity.Entities
 
             var header = (BlobAssetHeader*)(batch + 1);
             for (int i = 0; i != batch->BlobAssetHeaderCount; i++)
-            { 
+            {
                 header->ValidationPtr = header + 1;
                 if (header->Allocator != Allocator.None)
                     throw new System.ArgumentException("Blob Allocator should be Allocator.None");
@@ -117,10 +117,10 @@ namespace Unity.Entities
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 if (newRefCount < 0)
                     throw new InvalidOperationException("BlobAssetBatch refcount is less than zero. It has been corrupted.");
-                
+
                 if (batch->TotalDataSize == 0)
                     throw new InvalidOperationException("BlobAssetBatch has been corrupted. Likely it has already been unloaded or released.");
-                
+
                 var header = (BlobAssetHeader*)(batch + 1);
                 for (int i = 0; i != batch->BlobAssetHeaderCount; i++)
                 {
@@ -131,19 +131,19 @@ namespace Unity.Entities
                     header = (BlobAssetHeader*)(((byte*) (header+1)) + header->Length);
                 }
                 header--;
-                
+
                 if (header == (byte*) batch + batch->TotalDataSize)
                     throw new InvalidOperationException("BlobAssetBatch has been corrupted. Likely it has already been unloaded or released.");
 
                 batch->TotalDataSize = 0;
                 batch->BlobAssetHeaderCount = 0;
 #endif
-                
-                UnsafeUtility.Free(batch, Allocator.Persistent);
+
+                Memory.Unmanaged.Free(batch, Allocator.Persistent);
             }
         }
     }
-    
+
     readonly unsafe struct BlobAssetPtr : IEquatable<BlobAssetPtr>
     {
         public readonly BlobAssetHeader* Header;
@@ -209,13 +209,13 @@ namespace Unity.Entities
         /// </summary>
         [FieldOffset(0)]
         internal long m_Align8Union;
-    
+
         internal BlobAssetHeader* Header
         {
             get { return ((BlobAssetHeader*) m_Ptr) - 1; }
         }
 
-        
+
 
 #if !NET_DOTS
         /// <summary>
@@ -231,9 +231,16 @@ namespace Unity.Entities
         ///
         /// 2) Serialization - Before serialization, the <see cref="m_Ptr"/> field is patched with a serialized hash. The visitor encounters this member
         ///                    and writes/reads back the value. The value is then patched back to the new ptr.
+        ///
+        /// 3) ManagedObjectClone - When cloning managed objects Unity.Properties does not have access to the internal pointer field. This property is used to copy the bits for this struct.
         /// </remarks>
         // ReSharper disable once UnusedMember.Local
-        [Properties.CreateProperty] long SerializedHash => m_Align8Union;
+        [Properties.CreateProperty]
+        long SerializedHash
+        {
+            get => m_Align8Union;
+            set => m_Align8Union = value;
+        }
 #endif
 
         [BurstDiscard]
@@ -270,7 +277,7 @@ namespace Unity.Entities
             ValidateNonBurst();
             ValidateBurst();
         }
-        
+
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public void ValidateAllowNull()
         {
@@ -293,7 +300,7 @@ namespace Unity.Entities
         {
             ValidateNotNull();
             ValidateNotDeserialized();
-            UnsafeUtility.Free(Header, Header->Allocator);
+            Memory.Unmanaged.Free(Header, Header->Allocator);
             m_Ptr = null;
         }
     }
@@ -304,7 +311,7 @@ namespace Unity.Entities
     /// <remarks>Create a blob asset using a <see cref="BlobBuilder"/> or by deserializing a serialized blob asset.</remarks>
     /// <typeparam name="T">The struct data type defining the data structure of the blob asset.</typeparam>
     [ChunkSerializable]
-    public unsafe struct BlobAssetReference<T> : IDisposable, IEquatable<BlobAssetReference<T>> 
+    public unsafe struct BlobAssetReference<T> : IDisposable, IEquatable<BlobAssetReference<T>>
         where T : struct
     {
         #if !NET_DOTS
@@ -375,7 +382,7 @@ namespace Unity.Entities
         public static BlobAssetReference<T> Create(void* ptr, int length)
         {
             byte* buffer =
-                (byte*) UnsafeUtility.Malloc(sizeof(BlobAssetHeader) + length, 16, Allocator.Persistent);
+                (byte*) Memory.Unmanaged.Allocate(sizeof(BlobAssetHeader) + length, 16, Allocator.Persistent);
             UnsafeUtility.MemCpy(buffer + sizeof(BlobAssetHeader), ptr, length);
 
             BlobAssetHeader* header = (BlobAssetHeader*) buffer;
@@ -383,7 +390,7 @@ namespace Unity.Entities
 
             header->Length = length;
             header->Allocator = Allocator.Persistent;
-            
+
             // @TODO use 64bit hash
             header->Hash = math.hash(ptr, length);
 
@@ -436,6 +443,19 @@ namespace Unity.Entities
             return new BlobAssetReference<T> { m_data = blobData };
         }
 
+        public static bool TryRead<U>(U binaryReader, int version, out BlobAssetReference<T> result)
+        where U : BinaryReader
+        {
+            var storedVersion = binaryReader.ReadInt();
+            if (storedVersion != version)
+            {
+                result = default;
+                return false;
+            }
+            result = binaryReader.Read<T>();
+            return true;
+        }
+
 #if !UNITY_DOTSRUNTIME
         /// <summary>
         /// Reads bytes from a fileName, validates the expected serialized version, and deserializes them into a new blob asset.
@@ -451,18 +471,9 @@ namespace Unity.Entities
                 result = default;
                 return false;
             }
-
             using (var binaryReader = new StreamBinaryReader(path, UnsafeUtility.SizeOf<T>() + sizeof(int)))
             {
-                var storedVersion = binaryReader.ReadInt();
-                if (storedVersion != version)
-                {
-                    result = default;
-                    return false;
-                }
-
-                result = binaryReader.Read<T>();
-                return true;
+                return TryRead(binaryReader, version, out result);
             }
         }
 #else
@@ -489,6 +500,15 @@ namespace Unity.Entities
         }
 #endif
 
+        public static void Write<U>(U writer, BlobBuilder builder, int verison)
+        where U : BinaryWriter
+        {
+            using (var asset = builder.CreateBlobAssetReference<T>(Allocator.TempJob))
+            {
+                writer.Write(verison);
+                writer.Write(asset);
+            }
+        }
 #if !NET_DOTS
         /// <summary>
         /// Writes the blob data to a path with serialized version.
@@ -498,13 +518,9 @@ namespace Unity.Entities
         /// <param name="version">Serialized version number of the blob data.</param>
         public static void Write(BlobBuilder builder, string path, int verison)
         {
-            using (var asset = builder.CreateBlobAssetReference<T>(Allocator.TempJob))
+            using (var writer = new StreamBinaryWriter(path))
             {
-                using (var writer = new StreamBinaryWriter(path))
-                {
-                    writer.Write(verison);
-                    writer.Write(asset);
-                }
+                Write(writer, builder, verison);
             }
         }
 #endif
@@ -705,7 +721,7 @@ namespace Unity.Entities
             if (m_Length > 0)
             {
                 var src = GetUnsafePtr();
-                
+
                 var handle = GCHandle.Alloc(result, GCHandleType.Pinned);
                 var addr = handle.AddrOfPinnedObject();
 
@@ -733,13 +749,13 @@ namespace Unity.Entities
     [MayOnlyLiveInBlobStorage]
     unsafe public struct BlobString
     {
-        internal BlobArray<char> Data;
+        internal BlobArray<byte> Data;
         /// <summary>
-        /// The length of the string in characters.
+        /// The length of the string in UTF-8 bytes.
         /// </summary>
         public int Length
         {
-            get { return Data.Length; }
+            get { return math.max(0,Data.Length-1); } // it's null-terminated, but we don't count the trailing null.
         }
 
         /// <summary>
@@ -748,10 +764,14 @@ namespace Unity.Entities
         /// <returns>The C# string.</returns>
         public new string ToString()
         {
-            return new string((char*) Data.GetUnsafePtr(), 0, Data.Length);
+            var utf16_capacity = math.max(1, Length * 2);
+            var c = stackalloc char[utf16_capacity];
+            int utf16_length = 0;
+            Unicode.Utf8ToUtf16((byte*)Data.GetUnsafePtr(), Length, c, out utf16_length, utf16_capacity);
+            return new String(c, 0, utf16_length);
         }
     }
-    
+
     /// <summary>
     /// Extensions that allow the creation of <see cref="BlobString"/> instances by a <see cref="BlobBuilder"/>.
     /// </summary>
@@ -766,11 +786,14 @@ namespace Unity.Entities
         /// <param name="value">The string to copy into the blob asset.</param>
         unsafe public static void AllocateString(ref this BlobBuilder builder, ref BlobString blobStr, string value)
         {
-            var res = builder.Allocate(ref blobStr.Data, value.Length);
-            var len = value.Length;
-            fixed (char* p = value)
+            fixed (char* c = value)
             {
-                UnsafeUtility.MemCpy(res.GetUnsafePtr(), p, sizeof(char) * len);
+                var utf8_capacity = value.Length * 2 + 1;
+                byte* b = (byte*)UnsafeUtility.Malloc(utf8_capacity, 1, Allocator.Temp);
+                Unicode.Utf16ToUtf8(c, value.Length, b, out int utf8_length, utf8_capacity);
+                b[utf8_length] = 0;
+                var res = builder.Allocate(ref blobStr.Data, utf8_length + 1);
+                UnsafeUtility.MemCpy(res.GetUnsafePtr(), b, utf8_length + 1);
             }
         }
     }
@@ -792,7 +815,7 @@ namespace Unity.Entities
         {
             var blobAssetLength = blob.m_data.Header->Length;
             var serializeReadyHeader = BlobAssetHeader.CreateForSerialize(blobAssetLength, blob.m_data.Header->Hash);
-            
+
             binaryWriter.WriteBytes(&serializeReadyHeader, sizeof(BlobAssetHeader));
             binaryWriter.WriteBytes(blob.m_data.Header + 1, blobAssetLength);
         }
@@ -809,23 +832,59 @@ namespace Unity.Entities
         {
             BlobAssetHeader header;
             binaryReader.ReadBytes(&header, sizeof(BlobAssetHeader));
-            
-            var buffer = (byte*) UnsafeUtility.Malloc(sizeof(BlobAssetHeader) + header.Length, 16, Allocator.Persistent);
+
+            var buffer = (byte*) Memory.Unmanaged.Allocate(sizeof(BlobAssetHeader) + header.Length, 16, Allocator.Persistent);
             binaryReader.ReadBytes(buffer + sizeof(BlobAssetHeader), header.Length);
 
             var bufferHeader = (BlobAssetHeader*) buffer;
             bufferHeader->Allocator = Allocator.Persistent;
             bufferHeader->Length = header.Length;
             bufferHeader->ValidationPtr = buffer + sizeof(BlobAssetHeader);
-            
+
             // @TODO use 64bit hash
             bufferHeader->Hash = header.Hash;
-            
+
             BlobAssetReference<T> blobAssetReference;
             blobAssetReference.m_data.m_Align8Union = 0;
             blobAssetReference.m_data.m_Ptr = buffer + sizeof(BlobAssetHeader);
 
             return blobAssetReference;
+        }
+    }
+}
+
+namespace Unity.Entities.LowLevel.Unsafe
+{
+    /// <summary>
+    /// An untyped reference to a blob assets. UnsafeUntypedBlobAssetReference can be cast to specific typed BlobAssetReferences.
+    /// </summary>
+    [ChunkSerializable]
+    public struct UnsafeUntypedBlobAssetReference : IDisposable, IEquatable<UnsafeUntypedBlobAssetReference>
+    {
+        internal BlobAssetReferenceData m_data;
+
+        public static UnsafeUntypedBlobAssetReference Create<T> (BlobAssetReference<T> blob) where T : struct
+        {
+            UnsafeUntypedBlobAssetReference value;
+            value.m_data = blob.m_data;
+            return value;
+        }
+
+        public BlobAssetReference<T> Reinterpret<T>() where T : struct
+        {
+            BlobAssetReference<T> value;
+            value.m_data = m_data;
+            return value;
+        }
+
+        public void Dispose()
+        {
+            m_data.Dispose();
+        }
+
+        public bool Equals(UnsafeUntypedBlobAssetReference other)
+        {
+            return m_data.Equals(other.m_data);
         }
     }
 }

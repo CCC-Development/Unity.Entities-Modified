@@ -48,7 +48,7 @@ namespace Unity.Entities
             long newSizeInBytes = (long)newCapacity * typeSize;
 
             byte* oldData = GetElementPointer(header);
-            byte* newData = (newCapacity <= internalCapacity) ? (byte*)(header + 1) : (byte*)UnsafeUtility.Malloc(newSizeInBytes, alignment, Allocator.Persistent);
+            byte* newData = (newCapacity <= internalCapacity) ? (byte*)(header + 1) : (byte*)Memory.Unmanaged.Allocate(newSizeInBytes, alignment, Allocator.Persistent);
 
             if (oldData != newData) // if at least one of them isn't the internal pointer...
             {
@@ -78,7 +78,7 @@ namespace Unity.Entities
                 // Note we're freeing the old buffer only if it was not using the internal capacity. Don't change this to 'oldData', because that would be a bug.
                 if (header->Pointer != null)
                 {
-                    UnsafeUtility.Free(header->Pointer, Allocator.Persistent);
+                    Memory.Unmanaged.Free(header->Pointer, Allocator.Persistent);
                 }
             }
 
@@ -109,10 +109,15 @@ namespace Unity.Entities
         {
             if (header->Pointer != null)
             {
-                UnsafeUtility.Free(header->Pointer, Allocator.Persistent);
+                Memory.Unmanaged.Free(header->Pointer, Allocator.Persistent);
             }
 
             Initialize(header, 0);
+        }
+
+        public static void FreeBufferPtr(void* ptr)
+        {
+            Memory.Unmanaged.Free(ptr, Allocator.Persistent);
         }
 
         // After cloning two worlds have access to the same malloc'ed buffer pointer leading to double deallocate etc.
@@ -124,7 +129,7 @@ namespace Unity.Entities
                 var type = chunk->Archetype->Types[i];
                 if (!type.IsBuffer)
                     continue;
-                var ti = TypeManager.GetTypeInfo(type.TypeIndex);
+                ref readonly var ti = ref TypeManager.GetTypeInfo(type.TypeIndex);
                 var sizeOf = chunk->Archetype->SizeOfs[i];
                 var offset = chunk->Archetype->Offsets[i];
                 for (var j = 0; j < chunk->Count; ++j)
@@ -136,12 +141,29 @@ namespace Unity.Entities
                         BufferHeader newHeader = *header;
                         long bytesToAllocate = (long)header->Capacity * ti.ElementSize;
                         long bytesToCopy = (long)header->Length * ti.ElementSize;
-                        newHeader.Pointer = (byte*)UnsafeUtility.Malloc(bytesToAllocate, TypeManager.MaximumSupportedAlignment, Allocator.Persistent);
+                        newHeader.Pointer = (byte*)Memory.Unmanaged.Allocate(bytesToAllocate, TypeManager.MaximumSupportedAlignment, Allocator.Persistent);
                         UnsafeUtility.MemCpy(newHeader.Pointer, header->Pointer, bytesToCopy);
                         *header = newHeader;
                     }
                 }
             }
+        }
+
+        public static void MemsetUnusedMemory(BufferHeader* bufferHeader, int internalCapacity, int elementSize, byte value)
+        {
+            // If bufferHeader->Pointer is not null it means with rely on a dedicated buffer instead of the internal one (that follows the header) to store the elements.
+            // in this case we also have to fully wipe out the internal buffer which is not in use.
+            if (bufferHeader->Pointer != null)
+            {
+                byte* internalBuffer = (byte*)(bufferHeader + 1);
+                UnsafeUtility.MemSet(internalBuffer, value, internalCapacity * elementSize);
+            }
+
+            // Wipe out excess capacity
+            var elementCountToClean = bufferHeader->Capacity - bufferHeader->Length;
+            var firstElementToClean = bufferHeader->Length;
+            var buffer = BufferHeader.GetElementPointer(bufferHeader);
+            UnsafeUtility.MemSet(buffer + (firstElementToClean * elementSize), value, elementCountToClean * elementSize);
         }
     }
 }

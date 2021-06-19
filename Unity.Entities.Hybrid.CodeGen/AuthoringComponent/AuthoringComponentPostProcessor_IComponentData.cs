@@ -106,32 +106,12 @@ namespace Unity.Entities.Hybrid.CodeGen
         internal static TypeDefinition CreateComponentDataAuthoringType(TypeDefinition componentDataType)
         {
             ModuleDefinition moduleDefinition = componentDataType.Module;
-            string authoringTypeNameSpace = componentDataType.Namespace;
 
-            var authoringType =
-                new TypeDefinition(
-                    authoringTypeNameSpace,
-                    componentDataType.Name + "Authoring",
-                    TypeAttributes.Class)
-            {
-                Scope = componentDataType.Scope,
-                BaseType = moduleDefinition.ImportReference(typeof(UnityEngine.MonoBehaviour))
-            };
-
+            var authoringType = CreateAuthoringType(componentDataType);
+            authoringType.BaseType = moduleDefinition.ImportReference(typeof(MonoBehaviour));
             authoringType.Interfaces.Add(new InterfaceImplementation(moduleDefinition.ImportReference(typeof(IConvertGameObjectToEntity))));
 
-            var dotsCompilerGeneratedAttribute =
-                moduleDefinition.ImportReference(typeof(DOTSCompilerGeneratedAttribute).GetConstructors().Single());
-            authoringType.CustomAttributes.Add(new CustomAttribute(dotsCompilerGeneratedAttribute));
-
-            var DisallowMultipleComponentsAttribute =
-                moduleDefinition.ImportReference(typeof(UnityEngine.DisallowMultipleComponent).GetConstructors().Single(c => !c.GetParameters().Any()));
-            authoringType.CustomAttributes.Add(new CustomAttribute(DisallowMultipleComponentsAttribute));
-
-            var dataFieldsToAuthoringFields = new Dictionary<FieldDefinition, FieldDefinition>();
-
             bool hasReferencedPrefabs = false;
-
             foreach (var field in componentDataType.Fields.Where(f => !f.IsStatic && f.IsPublic && !f.IsPrivate))
             {
                 var(authoringFieldDefinition, referencesPrefabs) =
@@ -140,10 +120,7 @@ namespace Unity.Entities.Hybrid.CodeGen
                 authoringType.Fields.Add(authoringFieldDefinition);
 
                 if (referencesPrefabs)
-                {
                     hasReferencedPrefabs = true;
-                }
-                dataFieldsToAuthoringFields.Add(field, authoringFieldDefinition);
             }
 
             CreateConvertMethodForComponentDataTypes(authoringType, componentDataType);

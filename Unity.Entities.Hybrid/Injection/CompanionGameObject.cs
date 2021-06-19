@@ -7,9 +7,10 @@ using UnityEngine;
 
 namespace Unity.Entities
 {
+#if UNITY_EDITOR
+    struct EditorCompanionHideFlagsSet : IComponentData {}
     struct EditorCompanionInPreviewSceneTag : IComponentData {}
 
-#if UNITY_EDITOR
     [UnityEditor.InitializeOnLoad] // ensures type manager is initialized on domain reload when not playing
 #endif
     static unsafe class AttachToEntityClonerInjection
@@ -95,9 +96,9 @@ namespace Unity.Entities
 
                 for (int t = firstIndex; t < lastIndex; ++t)
                 {
-                    var type = TypeManager.GetTypeInfo(types[t].TypeIndex);
+                    ref readonly var type = ref TypeManager.GetTypeInfo(types[t].TypeIndex);
 
-                    if (type.Category != TypeManager.TypeCategory.Class)
+                    if (type.Category != TypeManager.TypeCategory.UnityEngineObject)
                         continue;
 
                     var hybridComponent = companionGameObject.GetComponent(type.Type);
@@ -106,7 +107,10 @@ namespace Unity.Entities
             }
 
             entityManager.RemoveComponent<CompanionGameObjectActiveSystemState>(entities);
+            #if UNITY_EDITOR
+            entityManager.RemoveComponent<EditorCompanionHideFlagsSet>(entities);
             entityManager.RemoveComponent<EditorCompanionInPreviewSceneTag>(entities);
+            #endif
         }
     }
 }

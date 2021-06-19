@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Unity.Build;
-using Unity.Build.Common;
+using GameObjectConversion;
+using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Entities.Serialization;
 using UnityEditor;
 using UnityEditor.Build.Content;
 using UnityEditor.Build.Pipeline;
@@ -14,8 +13,8 @@ using UnityEditor.Build.Pipeline.Interfaces;
 using UnityEditor.Build.Pipeline.Tasks;
 using UnityEditor.Build.Pipeline.Utilities;
 using UnityEditor.Build.Pipeline.Injector;
-using UnityEditor.Build.Pipeline.WriteTypes;
 using UnityEditor.Build.Utilities;
+using UnityEditor.Experimental;
 using BuildCompression = UnityEngine.BuildCompression;
 using BuildPipeline = UnityEditor.BuildPipeline;
 
@@ -40,7 +39,7 @@ namespace Unity.Scenes.Editor
         //
         // The reason for the strange looking api, where a two callbacks get passed in is to make integration of the new incremental buildpipeline easier, as this code
         // needs to be compatible both with the current buildpipeline in the dots-repo, as well as with the incremental buildpipeline.  When that is merged, we can simplify this.
-        public static void PrepareAdditionalFiles(string buildConfigurationGuid, string[] scenePathsForBuild, BuildTarget target, Action<string, string> RegisterFileCopy, string outputStreamingAssetsDirectory, string buildWorkingDirectory)
+        public static void PrepareAdditionalFiles(GUID[] sceneGuids, ArtifactKey[] entitySceneArtifacts, BuildTarget target, Action<string, string> RegisterFileCopy, string outputStreamingAssetsDirectory, string buildWorkingDirectory)
         {
             if (target == BuildTarget.NoTarget)
                 throw new InvalidOperationException($"Invalid build target '{target.ToString()}'.");
@@ -48,14 +47,17 @@ namespace Unity.Scenes.Editor
             if (target != EditorUserBuildSettings.activeBuildTarget)
                 throw new InvalidOperationException($"ActiveBuildTarget must be switched before the {nameof(SubSceneBuildCode)} runs.");
 
+            Assert.AreEqual(sceneGuids.Length, entitySceneArtifacts.Length);
+
             var content = new BundleBuildContent(new AssetBundleBuild[0]);
             var bundleNames = new HashSet<string>();
-            var subSceneGuids = scenePathsForBuild.SelectMany(scenePath => SceneMetaDataImporter.GetSubSceneGuids(AssetDatabase.AssetPathToGUID(scenePath))).Distinct().ToList();
             var subScenePaths = new Dictionary<Hash128, string>();
             var dependencyInputData = new Dictionary<SceneSection, SectionDependencyInfo>();
+
             var refExt = EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesUnityObjectReferences);
             var headerExt = EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesHeader);
             var binaryExt = EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesBinary);
+            string conversionLogExtension = EntityScenesPaths.GetExtension(EntityScenesPaths.PathType.EntitiesConversionLog);
 
             var group = BuildPipeline.GetBuildTargetGroup(target);
             var parameters = new BundleBuildParameters(target, @group, buildWorkingDirectory)
@@ -63,33 +65,39 @@ namespace Unity.Scenes.Editor
                 BundleCompression = BuildCompression.LZ4Runtime
             };
 
-            var requiresRefresh = false;
-            var sceneBuildConfigGuids = new NativeArray<GUID>(subSceneGuids.Count, Allocator.TempJob);
-            for (int i = 0; i != sceneBuildConfigGuids.Length; i++)
+            var artifactHashes = new UnityEngine.Hash128[entitySceneArtifacts.Length];
+            AssetDatabaseCompatibility.ProduceArtifactsRefreshIfNecessary(entitySceneArtifacts, artifactHashes);
+
+            for (int i = 0; i != entitySceneArtifacts.Length; i++)
             {
-                sceneBuildConfigGuids[i] = SceneWithBuildConfigurationGUIDs.EnsureExistsFor(subSceneGuids[i], new Hash128(buildConfigurationGuid), out var thisRequiresRefresh);
-                requiresRefresh |= thisRequiresRefresh;
-            }
-            if (requiresRefresh)
-                AssetDatabase.Refresh();
-
-            var artifactHashes = new NativeArray<UnityEngine.Hash128>(subSceneGuids.Count, Allocator.TempJob);
-            AssetDatabaseCompatibility.ProduceArtifactsRefreshIfNecessary(sceneBuildConfigGuids, typeof(SubSceneImporter), artifactHashes);
-
-            for (int i = 0; i != sceneBuildConfigGuids.Length; i++)
-            {
-
-                var sceneGuid = subSceneGuids[i];
-                var sceneBuildConfigGuid = sceneBuildConfigGuids[i];
+                var sceneGuid = sceneGuids[i];
+                var sceneBuildConfigGuid = entitySceneArtifacts[i].guid;
                 var artifactHash = artifactHashes[i];
 
                 bool foundEntityHeader = false;
+
+                if (!artifactHash.isValid)
+                    throw new Exception($"Building EntityScene artifact failed: '{AssetDatabaseCompatibility.GuidToPath(sceneGuid)}' ({sceneGuid}). There were exceptions during the entity scene imports.");
+
                 AssetDatabaseCompatibility.GetArtifactPaths(artifactHash, out var artifactPaths);
+
                 foreach (var artifactPath in artifactPaths)
                 {
+                    //UnityEngine.Debug.Log($"guid: {sceneGuid} artifact: '{artifactPath}'");
+
                     //@TODO: This looks like a workaround. Whats going on here?
                     var ext = Path.GetExtension(artifactPath).Replace(".", "");
-                    if (ext == headerExt)
+
+                    if (ext == conversionLogExtension)
+                    {
+                        var res = ConversionLogUtils.PrintConversionLogToUnityConsole(artifactPath);
+
+                        if (res.HasException)
+                        {
+                            throw new Exception("Building entity scenes failed. There were exceptions during the entity scene imports.");
+                        }
+                    }
+                    else if (ext == headerExt)
                     {
                         foundEntityHeader = true;
 
@@ -109,8 +117,7 @@ namespace Unity.Scenes.Editor
                         var destinationFile = EntityScenesPaths.RelativePathFolderFor(sceneGuid, EntityScenesPaths.PathType.EntitiesBinary, EntityScenesPaths.GetSectionIndexFromPath(artifactPath));
                         DoCopy(RegisterFileCopy, outputStreamingAssetsDirectory, artifactPath, destinationFile);
                     }
-
-                    if (ext == refExt)
+                    else if (ext == refExt)
                     {
                         content.CustomAssets.Add(new CustomContent
                         {
@@ -135,9 +142,6 @@ namespace Unity.Scenes.Editor
                 }
             }
 
-            sceneBuildConfigGuids.Dispose();
-            artifactHashes.Dispose();
-
             if (content.CustomAssets.Count <= 0)
                 return;
 
@@ -147,7 +151,11 @@ namespace Unity.Scenes.Editor
             var status = ContentPipeline.BuildAssetBundles(parameters, content, out IBundleBuildResults result, CreateTaskList(), explicitLayout);
             PostBuildCallback?.Invoke(dependencyMapping);
             foreach (var bundleName in bundleNames)
+            {
+                // Console.WriteLine("Copy bundle: " + bundleName);
                 DoCopy(RegisterFileCopy, outputStreamingAssetsDirectory, buildWorkingDirectory + "/" + bundleName, "SubScenes/" + bundleName);
+            }
+
 
             foreach (var ssIter in subScenePaths)
             {
@@ -172,6 +180,7 @@ namespace Unity.Scenes.Editor
             if (!succeeded)
                 throw new InvalidOperationException($"BuildAssetBundles failed with status '{status}'.");
         }
+
         public static Action<Dictionary<Hash128, Dictionary<SceneSection, List<Hash128>>>> PostBuildCallback;
 
         static void UpdateSceneMetaDataDependencies(ref BlobAssetReference<SceneMetaData> sceneMetaData, Dictionary<SceneSection, List<Hash128>> sceneDependencyData, string outPath)
@@ -179,7 +188,24 @@ namespace Unity.Scenes.Editor
             var blob = new BlobBuilder(Allocator.Temp);
             ref var root = ref blob.ConstructRoot<SceneMetaData>();
             blob.Construct(ref root.Sections, sceneMetaData.Value.Sections.ToArray());
-            blob.Construct(ref root.SceneSectionCustomMetadata, sceneMetaData.Value.SceneSectionCustomMetadata.ToArray());
+
+            // recursively copy scene section metadata
+            {
+                ref var sceneSectionCustomMetadata = ref sceneMetaData.Value.SceneSectionCustomMetadata;
+                var sceneMetaDataLength = sceneSectionCustomMetadata.Length;
+                var dstMetadataArray = blob.Allocate(ref root.SceneSectionCustomMetadata, sceneMetaDataLength);
+
+                for (int i = 0; i < sceneMetaDataLength; i++)
+                {
+                    var metaData = blob.Allocate(ref dstMetadataArray[i], sceneSectionCustomMetadata[i].Length);
+                    for (int j = 0; j < metaData.Length; j++)
+                    {
+                        metaData[j].StableTypeHash = sceneSectionCustomMetadata[i][j].StableTypeHash;
+                        blob.Construct(ref metaData[j].Data, sceneSectionCustomMetadata[i][j].Data.ToArray());
+                    }
+                }
+            }
+
             blob.AllocateString(ref root.SceneName, sceneMetaData.Value.SceneName.ToString());
             BlobBuilderArray<BlobArray<Hash128>> deps = blob.Allocate(ref root.Dependencies, sceneMetaData.Value.Sections.Length);
 
@@ -216,7 +242,7 @@ namespace Unity.Scenes.Editor
             //TODO: cache this dependency data
             var dependencies = ContentBuildInterface.GetPlayerDependenciesForObjects(objectIds, target, scriptInfo);
             var depTypes = ContentBuildInterface.GetTypeForObjects(dependencies);
-            var paths = dependencies.Select(i => AssetDatabase.GUIDToAssetPath(i.guid.ToString())).ToArray();
+            var paths = dependencies.Select(i => AssetDatabaseCompatibility.GuidToPath(i.guid)).ToArray();
             return new SectionDependencyInfo() { Dependencies = dependencies, Paths = paths, Types = depTypes };
         }
 
@@ -320,7 +346,7 @@ namespace Unity.Scenes.Editor
             }
 
             sw.Stop();
-            Debug.Log($"CreateAssetLayoutData time: {sw.Elapsed}");
+            Console.WriteLine($"CreateAssetLayoutData time: {sw.Elapsed}");
         }
 
         public static bool ValidateInput(Dictionary<SceneSection, SectionDependencyInfo> dependencyInputData, out string firstError)

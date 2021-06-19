@@ -16,6 +16,7 @@ namespace Unity.Entities
     }
 
     [AttributeUsage(AttributeTargets.Class)]
+    [Obsolete("Not used anymore. You can safely remove this. (RemovedAfter 2020-11-22)")]
     public class RequiresEntityConversionAttribute : Attribute {}
 }
 
@@ -58,23 +59,6 @@ namespace Unity.Entities.Conversion
 
             //@TODO: Remove this again once we add support for inheritance in queries
             Entities.ForEach((RectTransform transform) => Convert(transform, convertibles));
-        }
-    }
-
-    [UpdateInGroup(typeof(GameObjectBeforeConversionGroup))]
-    class ComponentDataProxyToEntitySystem : GameObjectConversionSystem
-    {
-        protected override void OnUpdate()
-        {
-            Entities.ForEach((Transform transform) =>
-            {
-                GameObjectConversionMappingSystem.CopyComponentDataProxyToEntity(DstEntityManager, transform.gameObject, GetPrimaryEntity(transform));
-            });
-            //@TODO: Remove this again once KevinM adds support for inheritance in queries
-            Entities.ForEach((RectTransform transform) =>
-            {
-                GameObjectConversionMappingSystem.CopyComponentDataProxyToEntity(DstEntityManager, transform.gameObject, GetPrimaryEntity(transform));
-            });
         }
     }
 }

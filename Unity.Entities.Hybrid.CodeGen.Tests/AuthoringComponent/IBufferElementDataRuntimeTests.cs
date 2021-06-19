@@ -1,3 +1,4 @@
+#if !ROSLYN_SOURCEGEN_ENABLED
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
@@ -77,6 +78,19 @@ namespace Unity.Entities.Hybrid.CodeGen.Tests
             }
         }
 
+        [Test]
+        public void AddingBufferWithUninitializedAuthoringComponentWorks()
+        {
+            GameObject gameObject = CreateEmptyGameObject();
+
+            gameObject.AddComponent<IntBufferElementAuthoring>();
+
+            AwakeConversion(gameObject);
+
+            var buffer = GetDynamicBufferFromConvertedEntity<IntBufferElement>();
+            Assert.AreEqual(0, buffer.Length);
+        }
+
         private GameObject CreateEmptyGameObject()
         {
             GameObject bufferElementDataAuthoringGameObject = CreateGameObject(name: string.Empty, DestructionBy.Test);
@@ -128,3 +142,4 @@ namespace Unity.Entities.Hybrid.CodeGen.Tests
         }
     }
 }
+#endif

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+#if UNITY_DOTSRUNTIME
+using Unity.Tiny.IO;
+#endif
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Collections;
@@ -62,7 +65,7 @@ namespace Unity.Scenes
 
             public void Execute()
             {
-                UnsafeUtility.Free(ptr, allocator);
+                Memory.Unmanaged.Free(ptr, allocator);
                 if(readHandle.IsValid())
                     readHandle.Dispose();
             }
@@ -95,6 +98,8 @@ namespace Unity.Scenes
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
             _Data.PostLoadCommandBuffer?.Dispose();
 #endif
+            if (_Data.Dependencies.IsCreated)
+                _Data.Dependencies.Dispose();
         }
 
         struct AsyncLoadSceneJob : IJob
@@ -147,7 +152,7 @@ namespace Unity.Scenes
 
 #if !UNITY_DOTSRUNTIME
         ReferencedUnityObjects  _ResourceObjRefs;
-        List<SceneBundleHandle> _SceneBundleHandles;
+        SceneBundleHandle[]     _SceneBundleHandles;
         AssetBundleRequest      _AssetRequest;
 #endif
 
@@ -188,7 +193,7 @@ namespace Unity.Scenes
         public Exception Exception => _LoadingException;
 
 #if !UNITY_DOTSRUNTIME
-        public List<SceneBundleHandle> StealBundles()
+        public SceneBundleHandle[] StealBundles()
         {
             var tmp = _SceneBundleHandles;
             _SceneBundleHandles = null;
@@ -209,7 +214,7 @@ namespace Unity.Scenes
                 _StartTime = Time.realtimeSinceStartup;
                 ReadCommand cmd;
 
-                _FileContent = (byte*)UnsafeUtility.Malloc(_SceneSize, 16, Allocator.Persistent);
+                _FileContent = (byte*)Memory.Unmanaged.Allocate(_SceneSize, 16, Allocator.Persistent);
                 cmd.Buffer = _FileContent;
                 cmd.Offset = 0;
                 cmd.Size = _SceneSize;
@@ -228,7 +233,7 @@ namespace Unity.Scenes
                     if (SceneBundleHandle.UseAssetBundles)
                     {
                         _SceneBundleHandles = SceneBundleHandle.LoadSceneBundles(_ResourcesPathObjRefs, _Data.Dependencies, true);
-                        if(_SceneBundleHandles.Count > 0)
+                        if(_SceneBundleHandles.Length > 0)
                             _ResourceObjRefs = _SceneBundleHandles[0].AssetBundle?.LoadAsset<ReferencedUnityObjects>(Path.GetFileName(_ResourcesPathObjRefs));
                     }
                     else
@@ -268,7 +273,7 @@ namespace Unity.Scenes
                     _StartTime = Time.realtimeSinceStartup;
                     ReadCommand cmd;
 
-                    _FileContent = (byte*) UnsafeUtility.Malloc(_SceneSize, 16, Allocator.Persistent);
+                    _FileContent = (byte*) Memory.Unmanaged.Allocate(_SceneSize, 16, Allocator.Persistent);
                     cmd.Buffer = _FileContent;
                     cmd.Offset = 0;
                     cmd.Size = _SceneSize;
@@ -386,13 +391,6 @@ namespace Unity.Scenes
                     return;
                 }
                 Assert.IsTrue(_ReadHandle.Status == ReadStatus.Complete);
-
-                if (_Data.Codec != Codec.None)
-                {
-                    _ReadHandle.mAsyncOp.GetData(out var compressedData, out var compressedDataSize);
-                    bool result = CodecService.Decompress(_Data.Codec, compressedData, compressedDataSize, _FileContent, _Data.SceneSize);
-                    Assert.IsTrue(result, $"Failed to decompress '{_ScenePath}' using codec '{_Data.Codec}'");
-                }
 #endif
                 try
                 {
@@ -461,7 +459,24 @@ namespace Unity.Scenes
             };
 #endif
 
+#if !UNITY_DOTSRUNTIME
             _EntityManager.ExclusiveEntityTransactionDependency = loadJob.Schedule(JobHandle.CombineDependencies(_EntityManager.ExclusiveEntityTransactionDependency, _ReadHandle.JobHandle));
+#else
+
+            JobHandle decompressJob = default;
+            if (_Data.Codec != Codec.None)
+            {
+                decompressJob = new DecompressJob()
+                {
+                    Codec = _Data.Codec,
+                    AsyncOp = _ReadHandle.mAsyncOp,
+                    DecompressedData = _FileContent,
+                    DecompressedDataSize = _Data.SceneSize
+                }.Schedule(_ReadHandle.mJobHandle);
+            }
+
+            _EntityManager.ExclusiveEntityTransactionDependency = loadJob.Schedule(JobHandle.CombineDependencies(_EntityManager.ExclusiveEntityTransactionDependency, _ReadHandle.JobHandle, decompressJob));
+#endif
         }
 
         void PostProcessScene()
@@ -478,4 +493,23 @@ namespace Unity.Scenes
             group.Update();
         }
     }
+
+#if UNITY_DOTSRUNTIME
+    public unsafe struct DecompressJob : IJob
+    {
+        public AsyncOp AsyncOp;
+        internal Codec Codec;
+        public unsafe byte* DecompressedData;
+        public int DecompressedDataSize;
+
+        public void Execute()
+        {
+            AsyncOp.GetData(out var compressedData, out var compressedDataSize);
+            bool result = CodecService.Decompress(Codec, compressedData, compressedDataSize, DecompressedData, DecompressedDataSize);
+
+            if (!result)
+                throw new Exception("Failed to decompress using codec " + Codec.ToString());
+        }
+    }
+#endif
 }

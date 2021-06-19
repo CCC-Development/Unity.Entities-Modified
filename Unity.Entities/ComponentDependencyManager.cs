@@ -52,6 +52,7 @@ namespace Unity.Entities
         bool                   _IsInTransaction;
 
         private ProfilerMarker m_Marker;
+        private WorldUnmanaged m_World;
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         public ComponentSafetyHandles Safety;
@@ -83,19 +84,20 @@ namespace Unity.Entities
             m_DependencyHandlesCount = 0;
         }
 
-        public void OnCreate()
+        public void OnCreate(WorldUnmanaged world)
         {
-            m_TypeArrayIndices = (ushort*)UnsafeUtility.Malloc(sizeof(ushort) * kMaxTypes, 16, Allocator.Persistent);
+            m_World = world;
+            m_TypeArrayIndices = (ushort*)Memory.Unmanaged.Allocate(sizeof(ushort) * kMaxTypes, 16, Allocator.Persistent);
             UnsafeUtility.MemSet(m_TypeArrayIndices, 0xFF, sizeof(ushort) * kMaxTypes);
 
-            m_ReadJobFences = (JobHandle*)UnsafeUtility.Malloc(sizeof(JobHandle) * kMaxReadJobHandles * kMaxTypes, 16, Allocator.Persistent);
+            m_ReadJobFences = (JobHandle*)Memory.Unmanaged.Allocate(sizeof(JobHandle) * kMaxReadJobHandles * kMaxTypes, 16, Allocator.Persistent);
             UnsafeUtility.MemClear(m_ReadJobFences, sizeof(JobHandle) * kMaxReadJobHandles * kMaxTypes);
 
-            m_DependencyHandles = (DependencyHandle*)UnsafeUtility.Malloc(sizeof(DependencyHandle) * kMaxTypes, 16, Allocator.Persistent);
+            m_DependencyHandles = (DependencyHandle*)Memory.Unmanaged.Allocate(sizeof(DependencyHandle) * kMaxTypes, 16, Allocator.Persistent);
             UnsafeUtility.MemClear(m_DependencyHandles, sizeof(DependencyHandle) * kMaxTypes);
 
             m_JobDependencyCombineBufferCount = 4 * 1024;
-            m_JobDependencyCombineBuffer = (JobHandle*)UnsafeUtility.Malloc(sizeof(DependencyHandle) * m_JobDependencyCombineBufferCount, 16, Allocator.Persistent);
+            m_JobDependencyCombineBuffer = (JobHandle*)Memory.Unmanaged.Allocate(sizeof(DependencyHandle) * m_JobDependencyCombineBufferCount, 16, Allocator.Persistent);
 
             m_DependencyHandlesCount = 0;
             _IsInTransaction = false;
@@ -120,6 +122,14 @@ namespace Unity.Entities
 
         public void CompleteAllJobsAndInvalidateArrays()
         {
+            var executingSystem = m_World.ExecutingSystem;
+            if (executingSystem != default)
+            {
+                var systemState = m_World.ResolveSystemState(executingSystem);
+                if (systemState != null)
+                    systemState->m_JobHandle.Complete();
+            }
+
             if (m_DependencyHandlesCount != 0)
             {
                 AssertCompleteSyncPoint();
@@ -151,13 +161,13 @@ namespace Unity.Entities
             for (var i = 0; i < m_DependencyHandlesCount * kMaxReadJobHandles; i++)
                 m_ReadJobFences[i].Complete();
 
-            UnsafeUtility.Free(m_JobDependencyCombineBuffer, Allocator.Persistent);
+            Memory.Unmanaged.Free(m_JobDependencyCombineBuffer, Allocator.Persistent);
 
-            UnsafeUtility.Free(m_TypeArrayIndices, Allocator.Persistent);
-            UnsafeUtility.Free(m_DependencyHandles, Allocator.Persistent);
+            Memory.Unmanaged.Free(m_TypeArrayIndices, Allocator.Persistent);
+            Memory.Unmanaged.Free(m_DependencyHandles, Allocator.Persistent);
             m_DependencyHandles = null;
 
-            UnsafeUtility.Free(m_ReadJobFences, Allocator.Persistent);
+            Memory.Unmanaged.Free(m_ReadJobFences, Allocator.Persistent);
             m_ReadJobFences = null;
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -385,11 +395,13 @@ namespace Unity.Entities
         public ComponentSafetyHandles Safety;
 #endif
         public int IsInForEachDisallowStructuralChange;
+        private WorldUnmanaged m_World;
 
-        public void OnCreate()
+        public void OnCreate(WorldUnmanaged world)
         {
             m_Dependency = default;
             _IsInTransaction = false;
+            m_World = world;
             IsInForEachDisallowStructuralChange = 0;
             m_ExclusiveTransactionDependency = default;
 
@@ -400,6 +412,13 @@ namespace Unity.Entities
 
         public void CompleteAllJobsAndInvalidateArrays()
         {
+            var executingSystem = m_World.ExecutingSystem;
+            if (executingSystem != default)
+            {
+                var systemState = m_World.ResolveSystemState(executingSystem);
+                if (systemState != null)
+                    systemState->m_JobHandle.Complete();
+            }
             m_Dependency.Complete();
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS

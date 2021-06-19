@@ -60,17 +60,6 @@ namespace Unity.Entities
 
 #endif
 
-        [Obsolete("Use HasComponent() instead. Exists() will be (RemovedAfter 2020-08-20). (UnityUpgradable) -> HasComponent(*)")]
-        public bool Exists(Entity entity)
-        {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            AtomicSafetyHandle.CheckReadAndThrow(m_Safety0);
-#endif
-            //@TODO: out of bounds index checks...
-
-            return m_EntityComponentStore->HasComponent(entity, m_TypeIndex);
-        }
-
         /// <summary>
         /// Reports whether the specified <see cref="Entity"/> instance still refers to a valid entity and that it has a
         /// buffer component of type T.
@@ -126,8 +115,9 @@ namespace Unity.Entities
                 m_EntityComponentStore->AssertEntityHasComponent(entity, m_TypeIndex);
 #endif
 
-                // TODO(dep): We don't really have a way to mark the native array as read only.
-                BufferHeader* header = (BufferHeader*)m_EntityComponentStore->GetComponentDataWithTypeRW(entity, m_TypeIndex, m_GlobalSystemVersion, ref m_Cache);
+                var header = (m_IsReadOnly)?
+                    (BufferHeader*)m_EntityComponentStore->GetComponentDataWithTypeRO(entity, m_TypeIndex, ref m_Cache) :
+                    (BufferHeader*)m_EntityComponentStore->GetComponentDataWithTypeRW(entity, m_TypeIndex, m_GlobalSystemVersion, ref m_Cache);
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 return new DynamicBuffer<T>(header, m_Safety0, m_ArrayInvalidationSafety, m_IsReadOnly, false, 0, m_InternalCapacity);

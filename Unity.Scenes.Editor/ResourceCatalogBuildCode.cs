@@ -1,7 +1,7 @@
 using Unity.Build.Common;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Entities.Hybrid;
+
 
 namespace Unity.Scenes.Editor
 {
@@ -25,7 +25,7 @@ namespace Unity.Scenes.Editor
 
             var strings = builder.Allocate(ref root.paths, sceneInfos.Length);
             for (int i = 0; i < sceneInfos.Length; i++)
-                builder.AllocateString(ref strings[i], sceneInfos[i].Path.ToLower());
+                builder.AllocateString(ref strings[i], sceneInfos[i].Path);
 
             BlobAssetReference<ResourceCatalogData>.Write(builder, sceneInfoPath, ResourceCatalogData.CurrentFileFormatVersion);
             builder.Dispose();

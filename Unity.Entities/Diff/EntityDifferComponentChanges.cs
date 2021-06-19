@@ -111,6 +111,69 @@ namespace Unity.Entities
             }
         }
 
+        static internal void GatherLinkedEntityGroupChanges(
+            EntityGuid entityGuid,
+            NativeArray<EntityGuid> beforeLinkedEntityGroup,
+            NativeArray<EntityGuid> afterLinkedEntityGroup,
+            NativeList<LinkedEntityGroupChange> additions,
+            NativeList<LinkedEntityGroupChange> removals)
+        {
+            beforeLinkedEntityGroup.Sort();
+            afterLinkedEntityGroup.Sort();
+
+            var beforeIndex = 0;
+            var afterIndex = 0;
+
+            int beforeLength = beforeLinkedEntityGroup.Length;
+            int afterLength = afterLinkedEntityGroup.Length;
+
+            while (beforeIndex < beforeLength && afterIndex < afterLength)
+            {
+                var beforeEntityGuid = beforeLinkedEntityGroup[beforeIndex];
+                var afterEntityGuid = afterLinkedEntityGroup[afterIndex];
+
+                var comparison = beforeEntityGuid.CompareTo(afterEntityGuid);
+
+                if (comparison == 0)
+                {
+                    // If the guids are equal, we know that the entity exists in both states.
+                    beforeIndex++;
+                    afterIndex++;
+                }
+                else if (comparison > 0)
+                {
+                    // If the before guid is greater, then we know that whatever guid we compared to
+                    // belongs to an entity that was added. Otherwise, we would already have matched it
+                    // in the first case before.
+                    additions.Add(new LinkedEntityGroupChange
+                        {RootEntityGuid = entityGuid, ChildEntityGuid = afterEntityGuid});
+                    afterIndex++;
+                }
+                else if (comparison < 0)
+                {
+                    // If the before guid is smaller, then we know that that entity must have been
+                    // removed
+                    removals.Add(new LinkedEntityGroupChange
+                        {RootEntityGuid = entityGuid, ChildEntityGuid = beforeEntityGuid});
+                    beforeIndex++;
+                }
+            }
+
+            while (beforeIndex < beforeLength)
+            {
+                // If the entity is in "before" but not "after", it's been removed.
+                removals.Add(new LinkedEntityGroupChange
+                    {RootEntityGuid = entityGuid, ChildEntityGuid = beforeLinkedEntityGroup[beforeIndex++]});
+            }
+
+            while (afterIndex < afterLength)
+            {
+                // If the entity is in "after" but not "before", it's been added.
+                additions.Add(new LinkedEntityGroupChange
+                    {RootEntityGuid = entityGuid, ChildEntityGuid = afterLinkedEntityGroup[afterIndex++]});
+            }
+        }
+
         [BurstCompile]
         struct GatherComponentChanges : IJob
         {
@@ -142,6 +205,15 @@ namespace Unity.Entities
 
             [NativeDisableContainerSafetyRestriction] public NativeHashMap<BlobAssetPtr, BlobAssetPtr> AfterBlobAssetRemap;
             [NativeDisableContainerSafetyRestriction] public NativeHashMap<BlobAssetPtr, BlobAssetPtr> BeforeBlobAssetRemap;
+
+            /// <summary>
+            /// If set, components are not compared bit-wise. Bit-wise comparison implies that two components that
+            /// have references to entities that have the same GUID but different indices/versions are different.
+            /// Similarly blob asset references to blob assets that have the same hash but live at different addresses
+            /// will be considered different as well. This is often not desirable. For these cases, it is more apt to
+            /// check that GUIDs and hashes match.
+            /// </summary>
+            public bool UseReferentialEquivalence;
 
             public void Execute()
             {
@@ -319,14 +391,14 @@ namespace Unity.Entities
                     }
                     else
                     {
-                        var typeInfo = TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
-                        AppendComponentData(packedComponent, elementPtr, typeInfo.ElementSize * length);
+                        var typeInfo = &TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
+                        AppendComponentData(packedComponent, elementPtr, typeInfo->ElementSize * length);
                         ExtractPatches(typeInfo, packedComponent, elementPtr, length);
                     }
                 }
                 else
                 {
-                    var typeInfo = TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
+                    var typeInfo = &TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
                     var sizeOf = afterArchetype->SizeOfs[afterIndexInTypeArray];
                     var ptr = ChunkDataUtility.GetChunkBuffer(afterChunk) + afterArchetype->Offsets[afterIndexInTypeArray] + afterEntityIndexInChunk * sizeOf;
                     AppendComponentData(packedComponent, ptr, sizeOf);
@@ -421,64 +493,19 @@ namespace Unity.Entities
                                 afterLinkedEntityGroupEntityGuids[i] = afterEntityGuid;
                             }
 
-                            beforeLinkedEntityGroupEntityGuids.Sort();
-                            afterLinkedEntityGroupEntityGuids.Sort();
-
-                            var beforeIndex = 0;
-                            var afterIndex = 0;
-
-                            while (beforeIndex < beforeLength && afterIndex < afterLength)
-                            {
-                                var beforeEntityGuid = beforeLinkedEntityGroupEntityGuids[beforeIndex];
-                                var afterEntityGuid = afterLinkedEntityGroupEntityGuids[afterIndex];
-
-                                var comparison = beforeEntityGuid.CompareTo(afterEntityGuid);
-
-                                if (comparison == 0)
-                                {
-                                    // If the entity is in both "before" and "after", then there is no change.
-                                    beforeIndex++;
-                                    afterIndex++;
-                                }
-                                else if (comparison > 0)
-                                {
-                                    // If the entity is in "before" but not "after", it's been removed.
-                                    LinkedEntityGroupRemovals.Add(new LinkedEntityGroupChange {RootEntityGuid = entityGuid, ChildEntityGuid = beforeEntityGuid});
-                                    beforeIndex++;
-                                }
-                                else if (comparison < 0)
-                                {
-                                    // If the entity is in "after" but not "before", it's been added.
-                                    LinkedEntityGroupAdditions.Add(new LinkedEntityGroupChange {RootEntityGuid = entityGuid, ChildEntityGuid = afterEntityGuid});
-                                    afterIndex++;
-                                }
-                            }
-
-                            while (beforeIndex < beforeLength)
-                            {
-                                // If the entity is in "before" but not "after", it's been removed.
-                                LinkedEntityGroupRemovals.Add(new LinkedEntityGroupChange
-                                    {RootEntityGuid = entityGuid, ChildEntityGuid = beforeLinkedEntityGroupEntityGuids[beforeIndex++]});
-                            }
-
-                            while (afterIndex < afterLength)
-                            {
-                                // If the entity is in "after" but not "before", it's been added.
-                                LinkedEntityGroupAdditions.Add(new LinkedEntityGroupChange
-                                    {RootEntityGuid = entityGuid, ChildEntityGuid = afterLinkedEntityGroupEntityGuids[afterIndex++]});
-                            }
+                            GatherLinkedEntityGroupChanges(entityGuid,
+                                beforeLinkedEntityGroupEntityGuids, afterLinkedEntityGroupEntityGuids,
+                                LinkedEntityGroupAdditions, LinkedEntityGroupRemovals);
                         }
                     }
                     else
                     {
-                        var typeInfo = TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
+                        var typeInfo = &TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
 
-                        if (afterLength != beforeLength
-                            || UnsafeUtility.MemCmp(beforeElementPtr, afterElementPtr, afterLength * typeInfo.ElementSize) != 0
-                            || BlobAssetHashesAreDifferent(typeInfo, beforeElementPtr, afterElementPtr, afterLength))
+                        if (afterLength != beforeLength || !AreComponentsEqual(typeInfo, beforeElementPtr, afterElementPtr, afterLength))
                         {
                             var packedComponent = PackComponent(entityGuid, afterTypeInArchetype.TypeIndex);
-                            AppendComponentData(packedComponent, afterElementPtr, typeInfo.ElementSize * afterLength);
+                            AppendComponentData(packedComponent, afterElementPtr, typeInfo->ElementSize * afterLength);
                             ExtractPatches(typeInfo, packedComponent, afterElementPtr, afterLength);
                         }
                     }
@@ -497,10 +524,10 @@ namespace Unity.Entities
                         + afterArchetype->SizeOfs[afterIndexInTypeArray]
                         * afterEntityIndexInChunk;
 
-                    var typeInfo = TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
+                    var typeInfo = &TypeInfo[afterTypeInArchetype.TypeIndex & TypeManager.ClearFlagsMask];
 
-                    if (UnsafeUtility.MemCmp(beforeAddress, afterAddress, beforeArchetype->SizeOfs[beforeIndexInTypeArray]) != 0
-                        || BlobAssetHashesAreDifferent(typeInfo, beforeAddress, afterAddress, 1))
+
+                    if (!AreComponentsEqual(typeInfo, beforeAddress, afterAddress, 1))
                     {
                         var packedComponent = PackComponent(entityGuid, afterTypeInArchetype.TypeIndex);
                         AppendComponentData(packedComponent, afterAddress, beforeArchetype->SizeOfs[beforeIndexInTypeArray]);
@@ -509,25 +536,103 @@ namespace Unity.Entities
                 }
             }
 
+            static bool ShouldSkip(int offset, ref int nextOffsetIndex, int offsetCount, TypeManager.EntityOffsetInfo* offsets)
+            {
+                while (nextOffsetIndex < offsetCount)
+                {
+                    int cmp = offset - offsets[nextOffsetIndex].Offset;
+                    if (cmp < 0)
+                        return false;
+                    if (cmp == 0)
+                        return true;
+                    nextOffsetIndex++;
+                }
+
+                return false;
+            }
+
+            bool AreComponentsEqual(TypeManager.TypeInfo* typeInfo, byte* beforeAddress, byte* afterAddress, int elementCount)
+            {
+                int elementSize = typeInfo->ElementSize;
+                if (!UseReferentialEquivalence || typeInfo->EntityOffsetCount == 0 && typeInfo->BlobAssetRefOffsetCount == 0)
+                {
+                    return UnsafeUtility.MemCmp(beforeAddress, afterAddress, elementCount * elementSize) == 0
+                           && !BlobAssetHashesAreDifferent(typeInfo, beforeAddress, afterAddress, elementCount);
+                }
+
+                // otherwise do deep comparison
+                if (BlobAssetHashesAreDifferent(typeInfo, beforeAddress, afterAddress, elementCount))
+                    return false;
+                if (EntityGuidsAreDifferent(typeInfo, beforeAddress, afterAddress, elementCount))
+                    return false;
+
+                var blobAssetOffsets = BlobAssetRefOffsets + typeInfo->BlobAssetRefOffsetStartIndex;
+                var entityOffsets = EntityOffsets + typeInfo->EntityOffsetStartIndex;
+                int blobAssetOffsetCount = typeInfo->BlobAssetRefOffsetCount;
+                int entityOffsetCount = typeInfo->EntityOffsetCount;
+
+                byte* mask = stackalloc byte[elementSize];
+                {
+                    int currentEntityOffset = 0;
+                    int currentBlobAssetOffset = 0;
+                    for (int offset = 0; offset < elementSize;)
+                    {
+                        if (ShouldSkip(offset, ref currentEntityOffset, entityOffsetCount, entityOffsets))
+                        {
+                            UnsafeUtility.MemSet(&mask[offset], 0, sizeof(Entity));
+                            offset += sizeof(Entity);
+                            continue;
+                        }
+                        if (ShouldSkip(offset, ref currentBlobAssetOffset, blobAssetOffsetCount, blobAssetOffsets))
+                        {
+                            UnsafeUtility.MemSet(&mask[offset], 0, sizeof(BlobAssetReferenceData));
+                            offset += sizeof(BlobAssetReferenceData);
+                            continue;
+                        }
+
+                        mask[offset] = 0xFF;
+                        offset += 1;
+                    }
+                }
+
+                for (var elementIndex = 0; elementIndex < elementCount; ++elementIndex)
+                {
+                    for (int offset = 0; offset < elementSize; )
+                    {
+                        if (mask[offset] == 0 || beforeAddress[offset] == afterAddress[offset])
+                        {
+                            offset++;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+
             /// <summary>
             /// IMPORTANT. This function does *NO* validation. It is assumed to be called after a memcmp == 0
             /// </summary>
             bool BlobAssetHashesAreDifferent(
-                TypeManager.TypeInfo typeInfo,
+                TypeManager.TypeInfo* typeInfo,
                 byte* beforeAddress,
                 byte* afterAddress,
                 int elementCount)
             {
-                if (typeInfo.BlobAssetRefOffsetCount == 0)
+                if (typeInfo->BlobAssetRefOffsetCount == 0)
                     return false;
 
-                var offsets = BlobAssetRefOffsets + typeInfo.BlobAssetRefOffsetStartIndex;
+                var offsets = BlobAssetRefOffsets + typeInfo->BlobAssetRefOffsetStartIndex;
 
                 var elementOffset = 0;
-
+                int elementSize = typeInfo->ElementSize;
+                int blobAssetRefOffsetCount = typeInfo->BlobAssetRefOffsetCount;
                 for (var elementIndex = 0; elementIndex < elementCount; ++elementIndex)
                 {
-                    for (var offsetIndex = 0; offsetIndex < typeInfo.BlobAssetRefOffsetCount; ++offsetIndex)
+                    for (var offsetIndex = 0; offsetIndex < blobAssetRefOffsetCount; ++offsetIndex)
                     {
                         var offset = elementOffset + offsets[offsetIndex].Offset;
 
@@ -538,14 +643,50 @@ namespace Unity.Entities
                             return true;
                     }
 
-                    elementOffset += typeInfo.ElementSize;
+                    elementOffset += elementSize;
+                }
+
+                return false;
+            }
+
+            bool EntityGuidsAreDifferent(
+                TypeManager.TypeInfo* typeInfo,
+                byte* beforeAddress,
+                byte* afterAddress,
+                int elementCount)
+            {
+                if (typeInfo->EntityOffsetCount == 0)
+                    return false;
+
+                var offsets = EntityOffsets + typeInfo->EntityOffsetStartIndex;
+
+                var elementOffset = 0;
+                int elementSize = typeInfo->ElementSize;
+                int entityOffsetCount = typeInfo->EntityOffsetCount;
+                for (var elementIndex = 0; elementIndex < elementCount; ++elementIndex)
+                {
+                    for (var offsetIndex = 0; offsetIndex < entityOffsetCount; ++offsetIndex)
+                    {
+                        var offset = elementOffset + offsets[offsetIndex].Offset;
+
+                        var afterEntity = *(Entity*) (afterAddress + offset);
+                        var beforeEntity = *(Entity*) (beforeAddress + offset);
+
+                        // If the entity has no guid, then guid will be null (desired)
+                        TryGetEntityGuid(BeforeEntityComponentStore, beforeEntity, out var beforeGuid);
+                        TryGetEntityGuid(AfterEntityComponentStore, afterEntity, out var afterGuid);
+                        if (!beforeGuid.Equals(afterGuid))
+                            return true;
+                    }
+
+                    elementOffset += elementSize;
                 }
 
                 return false;
             }
 
             void ExtractPatches(
-                TypeManager.TypeInfo typeInfo,
+                TypeManager.TypeInfo* typeInfo,
                 PackedComponent component,
                 byte* afterAddress,
                 int elementCount)
@@ -555,23 +696,24 @@ namespace Unity.Entities
             }
 
             void ExtractEntityReferencePatches(
-                TypeManager.TypeInfo typeInfo,
+                TypeManager.TypeInfo* typeInfo,
                 PackedComponent component,
                 byte* afterAddress,
                 int elementCount)
             {
-                if (typeInfo.EntityOffsetCount == 0)
+                if (typeInfo->EntityOffsetCount == 0)
                 {
                     return;
                 }
 
-                var offsets = EntityOffsets + typeInfo.EntityOffsetStartIndex;
+                var offsets = EntityOffsets + typeInfo->EntityOffsetStartIndex;
 
                 var elementOffset = 0;
-
+                int elementSize = typeInfo->ElementSize;
+                int entityOffsetCount = typeInfo->EntityOffsetCount;
                 for (var elementIndex = 0; elementIndex < elementCount; ++elementIndex)
                 {
-                    for (var offsetIndex = 0; offsetIndex < typeInfo.EntityOffsetCount; ++offsetIndex)
+                    for (var offsetIndex = 0; offsetIndex < entityOffsetCount; ++offsetIndex)
                     {
                         var offset = elementOffset + offsets[offsetIndex].Offset;
                         var entity = *(Entity*)(afterAddress + offset);
@@ -587,28 +729,29 @@ namespace Unity.Entities
                         });
                     }
 
-                    elementOffset += typeInfo.ElementSize;
+                    elementOffset += elementSize;
                 }
             }
 
             void ExtractBlobAssetReferencePatches(
-                TypeManager.TypeInfo typeInfo,
+                TypeManager.TypeInfo* typeInfo,
                 PackedComponent component,
                 byte* afterAddress,
                 int elementCount)
             {
-                if (typeInfo.BlobAssetRefOffsetCount == 0)
+                if (typeInfo->BlobAssetRefOffsetCount == 0)
                 {
                     return;
                 }
 
-                var offsets = BlobAssetRefOffsets + typeInfo.BlobAssetRefOffsetStartIndex;
+                var offsets = BlobAssetRefOffsets + typeInfo->BlobAssetRefOffsetStartIndex;
 
                 var elementOffset = 0;
-
+                int elementSize = typeInfo->ElementSize;
+                int blobAssetRefOffsetCount = typeInfo->BlobAssetRefOffsetCount;
                 for (var elementIndex = 0; elementIndex < elementCount; ++elementIndex)
                 {
-                    for (var offsetIndex = 0; offsetIndex < typeInfo.BlobAssetRefOffsetCount; ++offsetIndex)
+                    for (var offsetIndex = 0; offsetIndex < blobAssetRefOffsetCount; ++offsetIndex)
                     {
                         var offset = elementOffset + offsets[offsetIndex].Offset;
                         var blobAssetReference = (BlobAssetReferenceData*)(afterAddress + offset);
@@ -622,7 +765,7 @@ namespace Unity.Entities
                         });
                     }
 
-                    elementOffset += typeInfo.ElementSize;
+                    elementOffset += elementSize;
                 }
             }
 
@@ -727,6 +870,7 @@ namespace Unity.Entities
 
         static ComponentChanges GetComponentChanges(
             EntityInChunkChanges entityChanges,
+            bool useReferentialEquivalence,
             NativeHashMap<BlobAssetPtr, BlobAssetPtr> afterBlobAssetRemap,
             NativeHashMap<BlobAssetPtr, BlobAssetPtr> beforeBlobAssetRemap,
             Allocator allocator,
@@ -759,7 +903,8 @@ namespace Unity.Entities
                 SharedComponentChanges = componentChanges.SharedComponentChanges,
                 ManagedComponentChanges = componentChanges.ManagedComponentChanges,
                 AfterBlobAssetRemap = afterBlobAssetRemap,
-                BeforeBlobAssetRemap = beforeBlobAssetRemap
+                BeforeBlobAssetRemap = beforeBlobAssetRemap,
+                UseReferentialEquivalence = useReferentialEquivalence,
             }.Schedule(dependsOn);
 
             jobHandle = gatherComponentChanges;
@@ -942,9 +1087,9 @@ namespace Unity.Entities
             for (var i = 0; i < changes.Length; i++)
             {
                 var change = changes[i];
-                var typeInfo = TypeManager.GetTypeInfo(change.TypeIndex);
+                ref readonly var typeInfo = ref TypeManager.GetTypeInfo(change.TypeIndex);
 
-                if (typeInfo.Category == TypeManager.TypeCategory.Class)
+                if (typeInfo.Category == TypeManager.TypeCategory.UnityEngineObject)
                 {
                     // Hybrid Components should be ignored in the diff, the Companion Link will clone the Companion GameObject
                     // and when we apply the diff we'll relink the Hybrid Component to the ones from the Companion GameObject

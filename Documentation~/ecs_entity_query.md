@@ -13,7 +13,8 @@ You can use an [EntityQuery] to do the following:
 
 The entity and component arrays an [EntityQuery] returns are guaranteed to be "parallel", that is, the same index value always applies to the same entity in any array. 
 
-**Note:** The SystemBase [Entities.ForEach] constructions create internal [EntityQuery] instances based on the component types and attributes you specify for these APIs. You cannot use a different [EntityQuery] object with [Entities.ForEach], (though you can get the query object that an [Entities.ForEach] instance constructs and use it elsewhere).
+> [!NOTE]
+> The SystemBase [Entities.ForEach] constructions create internal [EntityQuery] instances based on the component types and attributes you specify for these APIs. You cannot use a different [EntityQuery] object with [Entities.ForEach], (though you can get the query object that an [Entities.ForEach] instance constructs and use it elsewhere).
 
 ## Defining a query
 
@@ -23,7 +24,7 @@ For simple queries, you can create an [EntityQuery] based on an array of compone
 
 [!code-cs[define-query](../DocCodeSamples.Tests/EntityQueryExamples.cs#define-query)]
 
-The query uses [ComponentType.ReadOnly<T>] instead of the simpler [typeof] expression to designate that the system does not write to RotationSpeed. Always specify read only when possible, because there are fewer constraints on read access to data, which can help the job scheduler execute the jobs more efficiently. 
+The query uses [ComponentType.ReadOnly&lt;T&gt;] instead of the simpler [typeof] expression to designate that the system does not write to RotationSpeed. Always specify read only when possible, because there are fewer constraints on read access to data, which can help the job scheduler execute the jobs more efficiently. 
 
 ### EntityQueryDesc
 
@@ -37,7 +38,8 @@ For example, the following query includes archetypes that contain the RotationQu
 
 [!code-cs[query-desc](../DocCodeSamples.Tests/EntityQueryExamples.cs#query-desc)]
 
-**Note:** Do not include optional components in the [EntityQueryDesc]. To handle optional components, use the [ArchetypeChunk.Has<T>] method to determine whether a chunk contains the optional component or not. Because all entities within the same chunk have the same components, you only need to check whether an optional component exists once per chunk: not once per entity.
+> [!NOTE]
+> Do not include optional components in the [EntityQueryDesc]. To handle optional components, use the [ArchetypeChunk.Has<T>] method to determine whether a chunk contains the optional component or not. Because all entities within the same chunk have the same components, you only need to check whether an optional component exists once per chunk: not once per entity.
 
 <a name="query-options"></a>
 ### Query options
@@ -94,13 +96,14 @@ Filters exclude entities that otherwise would be included among those returned b
 
 The filters you set remain in effect until you call [ResetFilter] on the query object.
 
-**Note:** Write Groups use a different mechanism. See [Query options].
+> [!NOTE]
+> Write Groups use a different mechanism. See [Query options].
 
 ### Shared component filters
 
 To use a shared component filter, include the shared component in the [EntityQuery]  -- along with other needed components -- and call the [SetSharedComponentFilter] function. Then pass in a struct of the same ISharedComponent type that contains the values to select. All values must match. You can add up to two different shared components to the filter.
 
-You can change the filter at any time, but if you change the filter, it does not change any existing arrays of entities or components that you received from the group [ToComponentDataArray] or [ToEntityArray] functions. You must recreate these arrays.
+You can change the filter at any time, but if you change the filter, it does not change any existing arrays of entities or components that you received from the group [ToComponentDataArray]&lt;T&gt; or [ToEntityArray] functions. You must recreate these arrays.
 
 The following example defines a shared component named SharedGrouping and a system that only processes entities that have the Group field set to `1`.
 
@@ -108,11 +111,12 @@ The following example defines a shared component named SharedGrouping and a syst
 
 ### Change filters
 
-If you only need to update entities when a component value has changed, you can add that component to the [EntityQuery] filter using the [SetFilterChanged] function. For example, the following [EntityQuery] only includes entities from chunks that another system has already written to the Translation component: 
+If you only need to update entities when a component value has changed, you can add that component to the [EntityQuery] filter using the [SetChangedVersionFilter] function. For example, the following [EntityQuery] only includes entities from chunks that another system has already written to the Translation component: 
 
 [!code-cs[change-filter](../DocCodeSamples.Tests/EntityQueryExamples.cs#change-filter)]
 
-**Note:** For efficiency, the change filter applies to whole chunks, not individual entities. The change filter also only checks whether a system has run that declared write access to the component, not whether it actually changed any data. In other words, if another job which had the ability to write to that type of component accesses the chunk, then the change filter includes all entities in that chunk. This is why you should always declare read only access to components that you do not need to modify.
+> [!NOTE]
+> For efficiency, the change filter applies to whole chunks, not individual entities. The change filter also only checks whether a system has run that declared write access to the component, not whether it actually changed any data. In other words, if another job which had the ability to write to that type of component accesses the chunk, then the change filter includes all entities in that chunk. This is why you should always declare read only access to components that you do not need to modify.
 
 ## Executing the query
 
@@ -120,7 +124,7 @@ Typically, you "execute" a query when you schedule a job that uses it.
 You can also call one of the [EntityQuery] methods that returns arrays of entities, components, or chunks:
 
 * [ToEntityArray] returns an array of the selected entities.
-* [ToComponentDataArray<T>] returns an array of the components of type `T` for the selected entities.
+* [ToComponentDataArray] returns an array of the components of type `T` for the selected entities.
 * [CreateArchetypeChunkArray] returns all of the chunks that contain the selected entities. Because a query operates on archetypes, shared component values, and change filters, which are all identical for all the entities in a chunk, the set of entities stored win the returned set of chunks is exactly the same as the set of entities [ToEntityArray] returns .
 
 [Query options]: #query-options
@@ -132,10 +136,11 @@ You can also call one of the [EntityQuery] methods that returns arrays of entiti
 [WithStoreEntityQueryInField]: xref:Unity.Entities.SystemBase.Entities
 [GetEntityQuery]: xref:Unity.Entities.ComponentSystemBase.GetEntityQuery
 [ResetFilter]: xref:Unity.Entities.EntityQuery.ResetFilter
-[SetSharedComponentFilter]: xref:Unity.Entities.EntityQuery.SetSharedComponentFilter
-[ToComponentDataArray]: xref:Unity.Entities.EntityQuery.ToComponentDataArray()
-[ToEntityArray]: xref:Unity.Entities.EntityQuery.ToEntityArray
-[CreateArchetypeChunkArray]: xref:Unity.Entities.EntityQuery.CreateArchetypeChunkArray
-[SetFilterChanged]: xref:Unity.Entities.EntityQuery.SetFilterChanged
-[ComponentType.ReadOnly<T>]: xref:Unity.Entities.ComponentType.ReadOnly*
+[SetSharedComponentFilter]: xref:Unity.Entities.EntityQuery.SetSharedComponentFilter*
+[ToComponentDataArray]: xref:Unity.Entities.EntityQuery.ToComponentDataArray*
+[ToEntityArray]: xref:Unity.Entities.EntityQuery.ToEntityArray*
+[CreateArchetypeChunkArray]: xref:Unity.Entities.EntityQuery.CreateArchetypeChunkArray*
+[SetChangedVersionFilter]: xref:Unity.Entities.EntityQuery.SetChangedVersionFilter*
+[ComponentType.ReadOnly&lt;T&gt;]: xref:Unity.Entities.ComponentType.ReadOnly*
 [ArchetypeChunk.Has<T>]: xref:Unity.Entities.ArchetypeChunk.Has*
+[GetEntityQuery]: xref:Unity.Entities.ComponentSystemBase.GetEntityQuery*

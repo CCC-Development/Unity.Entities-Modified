@@ -89,16 +89,9 @@ namespace Unity.Entities.Hybrid.CodeGen
 
             ModuleDefinition moduleDefinition = bufferElementDataType.Module;
 
-            var authoringType = new TypeDefinition(
-                bufferElementDataType.Namespace,
-                name: $"{bufferElementDataType.Name}Authoring",
-                TypeAttributes.Class)
-            {
-                Scope = bufferElementDataType.Scope,
-                BaseType =
-                    moduleDefinition.ImportReference(typeof(BufferElementAuthoring<,>))
-                        .MakeGenericInstanceType(moduleDefinition.ImportReference(bufferElementDataType), field.FieldType)
-            };
+            var authoringType = CreateAuthoringType(bufferElementDataType);
+            authoringType.BaseType = moduleDefinition.ImportReference(typeof(BufferElementAuthoring<,>))
+                    .MakeGenericInstanceType(moduleDefinition.ImportReference(bufferElementDataType), field.FieldType);
             moduleDefinition.Types.Add(authoringType);
 
             return authoringType;

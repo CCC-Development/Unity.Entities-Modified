@@ -16,20 +16,22 @@ using System.Linq;
 
 namespace Unity.Entities.Tests
 {
-    public class WorldTests
+    public class WorldTests : ECSTestsCommonBase
     {
         World m_PreviousWorld;
 
         [SetUp]
-        public virtual void Setup()
+        public override void Setup()
         {
+            base.Setup();
             m_PreviousWorld = World.DefaultGameObjectInjectionWorld;
         }
 
         [TearDown]
-        public virtual void TearDown()
+        public override void TearDown()
         {
             World.DefaultGameObjectInjectionWorld = m_PreviousWorld;
+            base.TearDown();
         }
 
         [Test]
@@ -252,7 +254,7 @@ namespace Unity.Entities.Tests
                     world.SetTime(timeData);
                 }
 
-                FixedRateUtils.EnableFixedRateSimple(sim, 1.0f);
+                sim.FixedRateManager = new FixedRateUtils.FixedRateSimpleManager(1.0f);
 
                 // first frame will tick at elapsedTime=0
                 AdvanceWorldTime(0.5f);
@@ -310,7 +312,7 @@ namespace Unity.Entities.Tests
                     world.SetTime(timeData);
                 }
 
-                FixedRateUtils.EnableFixedRateWithCatchUp(sim, 0.1f);
+                sim.FixedRateManager = new FixedRateUtils.FixedRateCatchUpManager(0.1f);
 
                 // first frame will tick at elapsedTime=0
                 AdvanceWorldTime(0.05f);
@@ -542,6 +544,54 @@ namespace Unity.Entities.Tests
             world.Dispose();
             Assert.AreEqual(0, world.Systems.Count);
         }
+
+        struct BadUnmanagedSystem : ISystemBase
+        {
+            object m_TheThingThatShouldNotBe;
+
+            public void OnCreate(ref SystemState state)
+            {
+            }
+
+            public void OnDestroy(ref SystemState state)
+            {
+            }
+
+            public void OnUpdate(ref SystemState state)
+            {
+            }
+        }
+
+        struct AcceptableUnmanagedSystem : ISystemBase
+        {
+            int m_TheThingThatIsOK;
+
+            public void OnCreate(ref SystemState state)
+            {
+            }
+
+            public void OnDestroy(ref SystemState state)
+            {
+            }
+
+            public void OnUpdate(ref SystemState state)
+            {
+            }
+        }
+
+        [Test]
+        [DotsRuntimeFixme]
+        public void CreatingUnmanagedSystemWithManagedTypesThrows()
+        {
+            using (World w = new World("foo"))
+            {
+                w.AddSystem<AcceptableUnmanagedSystem>();
+                w.GetOrCreateSystem<AcceptableUnmanagedSystem>();
+                Assert.Throws<ArgumentException>(() => w.GetOrCreateSystem<BadUnmanagedSystem>());
+                Assert.Throws<ArgumentException>(() => w.AddSystem<BadUnmanagedSystem>());
+            }
+        }
+
     }
 
     [BurstCompile]
@@ -552,7 +602,7 @@ namespace Unity.Entities.Tests
             public fixed byte Bytes[4097];
         }
 
-        private World.StateAllocator alloc;
+        private WorldUnmanagedImpl.StateAllocator alloc;
         private SystemDummy systems;
 
         [SetUp]
@@ -567,7 +617,7 @@ namespace Unity.Entities.Tests
             alloc.Dispose();
         }
 
-        internal static int CountLiveByBits(ref World.StateAllocator alloc)
+        internal static int CountLiveByBits(ref WorldUnmanagedImpl.StateAllocator alloc)
         {
             int live = 0;
 
@@ -579,7 +629,7 @@ namespace Unity.Entities.Tests
             return live;
         }
 
-        internal static int CountLiveByPointer(ref World.StateAllocator alloc)
+        internal static int CountLiveByPointer(ref WorldUnmanagedImpl.StateAllocator alloc)
         {
             int live = 0;
 
@@ -594,7 +644,7 @@ namespace Unity.Entities.Tests
             return live;
         }
 
-        internal static void SanityCheck(ref World.StateAllocator alloc)
+        internal static void SanityCheck(ref WorldUnmanagedImpl.StateAllocator alloc)
         {
         }
 
@@ -644,6 +694,7 @@ namespace Unity.Entities.Tests
             }
         }
 
+
         #if !NET_DOTS
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         private static void ThrowCountIsWrong()
@@ -661,7 +712,7 @@ namespace Unity.Entities.Tests
         [BurstCompile(CompileSynchronously = true)]
         static void RunStressTest(IntPtr allocPtr, IntPtr sys_)
         {
-            var alloc = (World.StateAllocator*)allocPtr;
+            var alloc = (WorldUnmanagedImpl.StateAllocator*)allocPtr;
             var sys = (byte*)sys_;
             ushort* handles = stackalloc ushort[4096];
             ushort* versions = stackalloc ushort[4096];
@@ -717,7 +768,7 @@ namespace Unity.Entities.Tests
         [Test]
         public void StressTestFromBurst()
         {
-            fixed(World.StateAllocator* p = &alloc)
+            fixed(WorldUnmanagedImpl.StateAllocator* p = &alloc)
             fixed(byte* s = systems.Bytes)
             {
                 BurstCompiler.CompileFunctionPointer<RunBurstTest>(RunStressTest).Invoke((IntPtr)p, (IntPtr)s);
@@ -727,7 +778,7 @@ namespace Unity.Entities.Tests
         [Test]
         public void StressTestFromMono()
         {
-            fixed(World.StateAllocator* p = &alloc)
+            fixed(WorldUnmanagedImpl.StateAllocator* p = &alloc)
             fixed(byte* s = systems.Bytes)
             {
                 RunStressTest((IntPtr)p, (IntPtr)s);

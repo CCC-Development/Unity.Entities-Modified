@@ -27,8 +27,10 @@ namespace Unity.Entities
 
                 ChunkDataUtility.Allocate(chunk, entities, allocateCount);
 
-                entities += allocateCount;
                 count -= allocateCount;
+
+                if (entities != null)
+                    entities += allocateCount;
             }
         }
 
@@ -84,7 +86,7 @@ namespace Unity.Entities
                 ///      Figure out how to make this more general purpose.
                 if (minDestroyStride == maxDestroyStride)
                 {
-                    var reordered = (Entity*)UnsafeUtility.Malloc(additionalDestroyList.Length * sizeof(Entity), 16,
+                    var reordered = (Entity*)Memory.Unmanaged.Allocate(additionalDestroyList.Length * sizeof(Entity), 16,
                         Allocator.TempJob);
                     int batchCount = additionalDestroyList.Length / minDestroyStride;
                     for (int i = 0; i != batchCount; i++)
@@ -94,14 +96,14 @@ namespace Unity.Entities
                     }
 
                     DestroyEntities(reordered, additionalDestroyList.Length);
-                    UnsafeUtility.Free(reordered, Allocator.TempJob);
+                    Memory.Unmanaged.Free(reordered, Allocator.TempJob);
                 }
                 else
                 {
                     DestroyEntities(additionalDestroyPtr, additionalDestroyList.Length);
                 }
 
-                UnsafeUtility.Free(additionalDestroyPtr, Allocator.Persistent);
+                Memory.Unmanaged.Free(additionalDestroyPtr, Allocator.Persistent);
             }
         }
 
@@ -135,35 +137,6 @@ namespace Unity.Entities
         {
             AssertValidEntities(entities, count);
             DestroyEntities(entities, count);
-        }
-
-        [Obsolete("CreateChunks is deprecated. (RemovedAfter 2020-06-05)", false)]
-        public void CreateChunks(Archetype* archetype, ArchetypeChunk* chunks, int chunksCount, int entityCount)
-        {
-            fixed(EntityComponentStore* entityComponentStore = &this)
-            {
-                int* sharedComponentValues = stackalloc int[archetype->NumSharedComponents];
-
-                int chunkIndex = 0;
-                while (entityCount != 0)
-                {
-                    #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    if (chunkIndex >= chunksCount)
-                        throw new System.ArgumentException($"CreateChunks chunks array is not large enough to hold the array of chunks {chunksCount}.");
-                    #endif
-
-                    var chunk = GetCleanChunk(archetype, sharedComponentValues);
-                    var allocateCount = math.min(entityCount, chunk->UnusedCount);
-
-                    ChunkDataUtility.Allocate(chunk, allocateCount);
-
-                    chunks[chunkIndex] = new ArchetypeChunk(chunk, entityComponentStore);
-
-                    entityCount -= allocateCount;
-                    chunkIndex++;
-                }
-                IncrementComponentTypeOrderVersion(archetype);
-            }
         }
 
         public Chunk* GetCleanChunkNoMetaChunk(Archetype* archetype, SharedComponentValues sharedComponentValues)
@@ -379,7 +352,7 @@ namespace Unity.Entities
 
             if (tempAllocSize > kMaxStackAllocSize)
             {
-                allocation = (byte*)UnsafeUtility.Malloc(tempAllocSize, 16, Allocator.Temp);
+                allocation = (byte*)Memory.Unmanaged.Allocate(tempAllocSize, 16, Allocator.Temp);
             }
             else
             {
@@ -436,14 +409,14 @@ namespace Unity.Entities
                     dstArchetype->BufferEntityPatches, dstArchetype->BufferEntityPatchCount,
                     chunk->Buffer, indexInChunk, allocatedCount, srcEntities, localRemap, srcEntityCount);
 
-                if (dstArchetype->ManagedEntityPatchCount > 0)
+                if (dstArchetype->HasManagedEntityRefs)
                 {
                     ManagedChangesTracker.PatchEntitiesForPrefab(dstArchetype, chunk, indexInChunk, allocatedCount, srcEntities, localRemap, srcEntityCount, Allocator.Temp);
                 }
             }
 
             if (tempAllocSize > kMaxStackAllocSize)
-                UnsafeUtility.Free(allocation, Allocator.Temp);
+                Memory.Unmanaged.Free(allocation, Allocator.Temp);
         }
 
         EntityBatchInChunk GetFirstEntityBatchInChunk(Entity* entities, int count)
@@ -494,7 +467,7 @@ namespace Unity.Entities
         public static JobHandle GetCreatedAndDestroyedEntities(EntityComponentStore* store, NativeList<int> state, NativeList<Entity> createdEntities, NativeList<Entity> destroyedEntities, bool async)
         {
             // Early outwhen no entities were created or destroyed compared to the last time this method was called
-            if (state.Length != 0 && store->EntityOrderVersion == state[0])
+            if (state.Length != 0 && store->m_EntityCreateDestroyVersion == state[0])
             {
                 createdEntities.Clear();
                 destroyedEntities.Clear();
@@ -538,7 +511,7 @@ namespace Unity.Entities
                 DestroyedEntities.Clear();
                 State.Resize(capacity + 1, NativeArrayOptions.ClearMemory);
 
-                State[0] = Store->EntityOrderVersion;
+                State[0] = Store->m_EntityCreateDestroyVersion;
                 var state = State.AsArray().GetSubArray(1, capacity);
 
                 for (int i = 0; i != capacity; i++)

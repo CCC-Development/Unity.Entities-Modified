@@ -191,7 +191,7 @@ namespace Unity.Entities
             var unfilteredChunkCount = query.CalculateChunkCountWithoutFiltering();
             var impl = query._GetImpl();
 
-            var prefilterHandle = ChunkIterationUtility.PreparePrefilteredChunkLists(unfilteredChunkCount,
+            var prefilterHandle = ChunkIterationUtility.PreparePrefilteredChunkListsAsync(unfilteredChunkCount,
 
                 impl->_QueryData->MatchingArchetypes, impl->_Filter, dependsOn, mode,
                 out NativeArray<byte> prefilterData,
@@ -318,10 +318,9 @@ namespace Unity.Entities
             {
 #if UNITY_2020_2_OR_NEWER && !UNITY_DOTSRUNTIME
                 IntPtr result = s_ReflectionData.Data;
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if (result == IntPtr.Zero)
-                    throw new InvalidOperationException("IJobChunk job reflection data has not been automatically computed - this is a bug");
-#endif
+
+                CheckReflectionDataBurst(result == IntPtr.Zero);
+
                 return result;
 #else
                 if (s_JobReflectionDataParallel == IntPtr.Zero)
@@ -330,14 +329,31 @@ namespace Unity.Entities
 #endif
             }
 
-            internal delegate void ExecuteJobFunction(ref JobChunkWrapper<T> jobWrapper, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref JobRanges ranges, int jobIndex);
-
-            internal static void Execute(ref JobChunkWrapper<T> jobWrapper, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref JobRanges ranges, int jobIndex)
+#if UNITY_2020_2_OR_NEWER && !UNITY_DOTSRUNTIME
+            [BurstDiscard]
+            private static void CheckReflectionData(bool isNull)
             {
-                ExecuteInternal(ref jobWrapper, ref ranges, jobIndex);
+                if (isNull)
+                    throw new InvalidOperationException($"Job reflection data has not been initialized for job `{typeof(T).FullName}`. Generic jobs must either be fully qualified in normal code or be registered with `[assembly:RegisterGenericJobType(typeof(...))]`. See https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/ecs_generic_jobs.html");
             }
 
-            internal unsafe static void ExecuteInternal(ref JobChunkWrapper<T> jobWrapper, ref JobRanges ranges, int jobIndex)
+            private static void CheckReflectionDataBurst(bool isNull)
+            {
+                CheckReflectionData(isNull);
+
+                if (isNull)
+                    throw new InvalidOperationException($"Job reflection data has not been initialized for this job. Generic jobs must either be fully qualified in normal code or be registered with `[assembly:RegisterGenericJobType(typeof(...))]`. See https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/ecs_generic_jobs.html");
+            }
+#endif
+
+            internal delegate void ExecuteJobFunction(ref JobChunkWrapper<T> jobWrapper, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref JobRanges ranges, int jobIndex);
+
+            public static void Execute(ref JobChunkWrapper<T> jobWrapper, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref JobRanges ranges, int jobIndex)
+            {
+                ExecuteInternal(ref jobWrapper, bufferRangePatchData, ref ranges, jobIndex);
+            }
+
+            internal unsafe static void ExecuteInternal(ref JobChunkWrapper<T> jobWrapper, System.IntPtr bufferRangePatchData, ref JobRanges ranges, int jobIndex)
             {
                 ChunkIterationUtility.UnpackPrefilterData(jobWrapper.PrefilterData, out var filteredChunks, out var entityIndices, out var chunkCount);
 
@@ -360,6 +376,13 @@ namespace Unity.Entities
                     {
                         var chunk = filteredChunks[chunkIndex];
                         var entityOffset = entityIndices[chunkIndex];
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        if(isParallel)
+                        {
+                            JobsUtility.PatchBufferMinMaxRanges(bufferRangePatchData, UnsafeUtility.AddressOf(ref jobWrapper), entityOffset, chunk.Count);
+                        }
+#endif
                         jobWrapper.JobData.Execute(chunk, chunkIndex, entityOffset);
                     }
 

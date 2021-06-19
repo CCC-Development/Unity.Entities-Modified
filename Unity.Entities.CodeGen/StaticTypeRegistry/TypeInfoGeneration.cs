@@ -26,6 +26,8 @@ namespace Unity.Entities.CodeGen
             public int BlobAssetRefOffsetIndex;
             public HashSet<TypeReference> WriteGroupTypes;
             public int WriteGroupsIndex;
+            public int FieldInfoCount;
+            public int FieldInfoIndex;
             public int TypeIndex;
             public bool IsManaged;
             public TypeUtils.AlignAndSize AlignAndSize;
@@ -36,6 +38,8 @@ namespace Unity.Entities.CodeGen
             public int Alignment;
             public ulong StableHash;
             public ulong MemoryOrdering;
+            public bool MightHaveEntityReferences;
+            public bool MightHaveBlobAssetReferences;
         }
 
         int m_TotalTypeCount;
@@ -179,6 +183,7 @@ namespace Unity.Entities.CodeGen
                         typeGenInfo.MaxChunkCapacity,
                         typeGenInfo.WriteGroupTypes.Count,
                         typeGenInfo.WriteGroupsIndex,
+                        typeGenInfo.BlobAssetRefOffsets.Count > 0 || typeGenInfo.MightHaveBlobAssetReferences,
                         typeGenInfo.BlobAssetRefOffsets.Count,
                         typeGenInfo.BlobAssetRefOffsetIndex,
                         0, // FastEqualityIndex - should be 0 until we can remove field altogether
@@ -229,6 +234,54 @@ namespace Unity.Entities.CodeGen
                 il.Emit(OpCodes.Newobj, m_TypeInfoConstructorRef);
 
                 il.Emit(OpCodes.Stelem_Any, m_TypeInfoRef);
+            }
+
+            StoreTopOfStackToField(il, fieldRef, isStaticField);
+        }
+
+        internal void GenerateFieldInfoArray(ILProcessor il, List<FieldGenInfo> fieldInfoList, FieldReference fieldRef, bool isStaticField)
+        {
+            PushNewArray(il, m_FieldInfoRef, fieldInfoList.Count);
+
+            for (int i = 0; i < fieldInfoList.Count; ++i)
+            {
+                var fieldInfo = fieldInfoList[i];
+
+                PushNewArrayElement(il, i);
+
+                // Push constructor arguments on to the stack
+                EmitLoadConstant(il, fieldInfo.Offset);
+                EmitLoadConstant(il, fieldInfo.FieldTypeIndex);
+                EmitLoadConstant(il, fieldInfo.FieldNameIndex);
+
+                il.Emit(OpCodes.Newobj, m_FieldInfoConstructorRef);
+
+                il.Emit(OpCodes.Stelem_Any, m_FieldInfoRef);
+            }
+
+            StoreTopOfStackToField(il, fieldRef, isStaticField);
+        }
+
+        internal void GenerateFieldInfoLookupArray(ILProcessor il, FieldReference fieldRef, bool isStaticField)
+        {
+            PushNewArray(il, m_FieldInfoLookupRef, m_FieldTypes.Count);
+
+            int typeIndex = 0;
+            foreach (var fieldType in m_FieldTypes)
+            {
+                var lookup = m_FieldInfoMap[fieldType];
+
+                PushNewArrayElement(il, typeIndex);
+
+                // Push constructor arguments on to the stack
+                EmitLoadConstant(il, typeIndex);
+                EmitLoadConstant(il, lookup.Index);
+                EmitLoadConstant(il, lookup.Count);
+
+                il.Emit(OpCodes.Newobj, m_FieldInfoLookupConstructorRef);
+
+                il.Emit(OpCodes.Stelem_Any, m_FieldInfoLookupRef);
+                typeIndex++;
             }
 
             StoreTopOfStackToField(il, fieldRef, isStaticField);
@@ -811,12 +864,14 @@ namespace Unity.Entities.CodeGen
             TypeUtils.AlignAndSize alignAndSize = new TypeUtils.AlignAndSize();
             List<int> entityOffsets = new List<int>();
             List<int> blobAssetRefOffsets = new List<int>();
-            bool isManaged = typeDef != null && typeRef.IsManagedType();
+            bool mightHaveEntityRefs = false;
+            bool mightHaveBlobRefs = false;
+            bool isManaged = typeDef != null && typeRef.IsManagedType(ref mightHaveEntityRefs, ref mightHaveBlobRefs);
 
             if (!isManaged)
             {
                 entityOffsets = TypeUtils.GetEntityFieldOffsets(typeRef, ArchBits);
-                blobAssetRefOffsets = TypeUtils.GetFieldOffsetsOf("Unity.Entities.BlobAssetReference`1", typeRef, ArchBits);
+                blobAssetRefOffsets = TypeUtils.GetFieldOffsetsOf("Unity.Entities.BlobAssetReferenceData", typeRef, ArchBits);
                 alignAndSize = TypeUtils.AlignAndSizeOfType(typeRef, ArchBits);
             }
             else if (isManaged && IsNetDots
@@ -848,7 +903,7 @@ namespace Unity.Entities.CodeGen
             if (typeCategory == TypeCategory.BufferData)
                 typeIndex |= BufferComponentTypeFlag;
 
-            if (entityOffsets.Count == 0)
+            if (entityOffsets.Count == 0 && !mightHaveEntityRefs)
                 typeIndex |= HasNoEntityReferencesFlag;
 
             if (isManaged)
@@ -916,6 +971,10 @@ namespace Unity.Entities.CodeGen
                 sizeInChunk = (bufferCapacity * elementSize) + bufferHeaderSize;
             }
 
+            var fieldInfoLookUp = new FieldInfoLookUp { Count = -1, Index = -1 };
+            if (IsToolConfig)
+                fieldInfoLookUp = GenerateFieldInfos(typeRef);
+
             var typeGenInfo = new TypeGenInfo()
             {
                 TypeReference = typeRef,
@@ -936,6 +995,10 @@ namespace Unity.Entities.CodeGen
                 Alignment = alignment,
                 StableHash = stableHash,
                 MemoryOrdering = memoryOrdering,
+                FieldInfoCount = fieldInfoLookUp.Count,
+                FieldInfoIndex = fieldInfoLookUp.Index,
+                MightHaveEntityReferences = mightHaveEntityRefs,
+                MightHaveBlobAssetReferences = mightHaveBlobRefs
             };
 
             m_TotalEntityOffsetCount += entityOffsets.Count;
