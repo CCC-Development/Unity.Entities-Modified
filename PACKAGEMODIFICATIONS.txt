@@ -81,3 +81,14 @@ Unity.Entities\ExclusiveEntityTransaction.cs
     +         : #endif
     +         :                 );
     +         :         }
+
+
+2021-06-20 Added exception when calling SetSingleton<T> with zero sized component
+Unity.Entities\EntityQuery.cs
+    + line 870:            // Added by fbessette, 2021-06-20
+    +         :#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    +         :            if (TypeManager.GetTypeInfo(typeIndex).IsZeroSized)
+    +         :                throw new System.ArgumentException(
+    +         :                    "Set singleton can not be called with a zero sized component.");
+    +         :#endif
+    +         :            // End
