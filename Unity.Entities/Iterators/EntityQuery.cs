@@ -1645,7 +1645,7 @@ namespace Unity.Entities
         /// </remarks>
         /// <param name="componentType">ComponentType to mark as changed on this EntityQuery's filter.</param>
         public void SetChangedVersionFilter(ComponentType componentType) => _GetImpl()->SetChangedVersionFilter(componentType);
-        internal void SetChangedFilterRequiredVersion(uint requiredVersion) => _GetImpl()->SetChangedFilterRequiredVersion(requiredVersion);
+        public void SetChangedFilterRequiredVersion(uint requiredVersion) => _GetImpl()->SetChangedFilterRequiredVersion(requiredVersion);
 
         /// <summary>
         /// Filters out entities in chunks for which the specified component has not changed.

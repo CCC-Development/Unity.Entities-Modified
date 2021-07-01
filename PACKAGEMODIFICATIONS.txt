@@ -92,3 +92,6 @@ Unity.Entities\EntityQuery.cs
     +         :                    "Set singleton can not be called with a zero sized component.");
     +         :#endif
     +         :            // End
+
+2021-07-01 Changed EntityQuery's SetChangedFilterRequiredVersion access from internal to public
+Unity.Entities\EntityQuery.cs
