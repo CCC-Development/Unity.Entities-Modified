@@ -866,6 +866,15 @@ namespace Unity.Entities
         public void SetSingleton<T>(T value) where T : struct, IComponentData
         {
             var typeIndex = TypeManager.GetTypeIndex<T>();
+
+            // Added by fbessette, 2021-06-20
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (TypeManager.GetTypeInfo(typeIndex).IsZeroSized)
+                throw new System.ArgumentException(
+                    "Set singleton can not be called with a zero sized component.");
+#endif
+            // End
+
             _Access->DependencyManager->CompleteWriteDependencyNoChecks(typeIndex);
 
             // Fast path with no filter & assuming this is a simple query with just one singleton component
@@ -1636,7 +1645,7 @@ namespace Unity.Entities
         /// </remarks>
         /// <param name="componentType">ComponentType to mark as changed on this EntityQuery's filter.</param>
         public void SetChangedVersionFilter(ComponentType componentType) => _GetImpl()->SetChangedVersionFilter(componentType);
-        internal void SetChangedFilterRequiredVersion(uint requiredVersion) => _GetImpl()->SetChangedFilterRequiredVersion(requiredVersion);
+        public void SetChangedFilterRequiredVersion(uint requiredVersion) => _GetImpl()->SetChangedFilterRequiredVersion(requiredVersion);
 
         /// <summary>
         /// Filters out entities in chunks for which the specified component has not changed.

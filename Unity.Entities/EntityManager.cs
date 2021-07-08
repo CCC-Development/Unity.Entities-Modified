@@ -79,6 +79,16 @@ namespace Unity.Entities
             return m_EntityDataAccess;
         }
 
+        // ADDED BY FBESSETTE 2020-05-24
+        internal EntityDataAccess* GetCheckedReadEntityDataAccess()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
+#endif
+            AssertIsExclusiveTransaction();
+            return m_EntityDataAccess;
+        }
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         internal bool IsInsideForEach => GetCheckedEntityDataAccess()->m_InsideForEach != 0;
 

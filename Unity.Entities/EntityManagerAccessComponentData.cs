@@ -321,6 +321,25 @@ namespace Unity.Entities
             );
         }
 
+        // ADDED BY FBESSETTE 2020-04-09
+        [BurstCompatible(GenericTypeArguments = new[] { typeof(BurstCompatibleBufferElement) })]
+        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+        {
+            var typeIndex = TypeManager.GetTypeIndex<T>();
+            var ecs = GetCheckedReadEntityDataAccess();
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            var safetyHandles = &ecs->DependencyManager->Safety;
+#endif
+
+            return ecs->GetBufferReadOnly<T>(entity
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                , safetyHandles->GetSafetyHandle(typeIndex, true),
+                safetyHandles->GetBufferSafetyHandle(typeIndex)
+#endif
+            );
+        }
+
         /// <summary>
         /// Swaps the components of two entities.
         /// </summary>

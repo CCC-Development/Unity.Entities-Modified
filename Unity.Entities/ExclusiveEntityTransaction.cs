@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Unity.Collections;
@@ -125,6 +125,12 @@ namespace Unity.Entities
         public DynamicBuffer<T> GetBuffer<T>(Entity entity) where T : struct, IBufferElementData
         {
             return m_Manager.GetBuffer<T>(entity);
+        }
+
+        // added by fbessette 2020-04-19
+        public DynamicBuffer<T> GetBufferReadOnly<T>(Entity entity) where T : struct, IBufferElementData
+        {
+            return m_Manager.GetBufferReadOnly<T>(entity);
         }
 
         public void SwapComponents(ArchetypeChunk leftChunk, int leftIndex, ArchetypeChunk rightChunk, int rightIndex)
