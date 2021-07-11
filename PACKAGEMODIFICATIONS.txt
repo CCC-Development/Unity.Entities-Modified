@@ -4,23 +4,6 @@
 Iterators\ArchetypeChunkArray.cs 
     + line 241: public bool DidChange<T>(ComponentType componentType, uint version) where T : struct, ISharedComponentData
     + line 289: public uint GetComponentVersion(ComponentType componentType)
-
-2020-03-28 Added user hook into the entity inspector drawing to allow custom property drawing
-Unity.Entities.Editor\EntityInspector\EntityIMGUIVisitor.cs
-    + line 12:		public class InspectorUserHook
-    +        :		{
-    +        :			public static Func<IPropertyVisitorAdapter> s_AdapterBuilder;
-    +        :		}
-    ----------
-    + line 126:		if(InspectorUserHook.s_AdapterBuilder != null)
-    +         :		{	AddAdapter(InspectorUserHook.s_AdapterBuilder());
-    +         :         var adapters = InspectorUserHook.s_AdapterBuilder();
-    +         :         foreach (var adapter in adapters)
-    +         :         {
-    +         :             if(adapter != null)
-    +         :                 AddAdapter(adapter);
-    +         :         }
-    +         :     }
     
 2020-04-19 Exposed a GetBufferReadOnly() method that returns a DynamicBuffer with a readonly handle
 Unity.Entities\EntityManagerAccessComponentData.cs

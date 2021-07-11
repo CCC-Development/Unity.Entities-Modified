@@ -7,13 +7,6 @@ using UnityEngine;
 
 namespace Unity.Entities.Editor
 {
-    // ADDED FBESSETTE 2020-03-28
-    public class InspectorUserHook
-    {
-        public static Func<IPropertyVisitorAdapter[]> s_AdapterBuilder;
-    }
-    // END
-
     class EntityIMGUIVisitor : PropertyVisitor
     {
         const int kBufferPageLength = 5;
@@ -59,18 +52,6 @@ namespace Unity.Entities.Editor
 
         public EntityIMGUIVisitor(SelectEntityButtonCallback selectEntityButtonCallback, ResolveEntityNameCallback resolveEntityNameCallback)
         {
-            // ADDED FBESSETTE 2020-03-28
-            if (InspectorUserHook.s_AdapterBuilder != null)
-            {
-                var adapters = InspectorUserHook.s_AdapterBuilder();
-                foreach (var adapter in adapters)
-                {
-                    if (adapter != null)
-                        AddAdapter(adapter);
-                }
-            }
-            // END
-
             AddAdapter(new IMGUIAdapter(selectEntityButtonCallback, resolveEntityNameCallback));
         }
 
